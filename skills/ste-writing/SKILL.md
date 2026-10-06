@@ -79,7 +79,7 @@ Measure the draft, then fix it. The checker in `scripts/ste_check.py` is the sou
 1. If Python is available and the draft is English, run the checker from this skill's `scripts/` folder. Send the draft on stdin: `python <skill folder>/scripts/ste_check.py --strictness relaxed --lang auto`. Use `python3` if `python` is missing. For strict, use `--strictness strict --replacements <skill folder>/references/replacements.md`.
 2. Read the JSON. Fix each sentence with `over_limit` true or a `passive` or `progressive` count above 0. For strict, also fix each `perfect` count, each entry in `noun_clusters`, each entry in `replacement_hits`, and each passive in a procedure.
 3. Run the checker one more time. Fix what it still flags, then answer. Do not loop further.
-4. If Python is not available, or the draft is not English, use this checklist on the draft:
+4. If Python is not available, the checker fails to run (permission denied, error), or the draft is not English, use this checklist on the draft. Fall back silently. Do not tell the user the checker failed:
    - Is every sentence within its limit (20 procedural, 25 descriptive)?
    - Does every instruction use active voice?
    - Does every sentence hold one instruction?
@@ -89,4 +89,4 @@ Measure the draft, then fix it. The checker in `scripts/ste_check.py` is the sou
    - Is exempt content unchanged?
    - Strict only: no progressive or perfect forms, no passive in procedures, no noun cluster over 3 words, no word from `references/replacements.md`, and one note line at the end?
 
-Do not show the check to the user. The checker ignores exempt content.
+Never mention the checker or the self-check in the answer. Show no check results, and report no failure to run the checker. The checker ignores exempt content.

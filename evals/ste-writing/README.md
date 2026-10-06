@@ -33,6 +33,10 @@ The passages are in `passages/` and are DRAFT until the maintainer approves them
 
 Sentence counts are pooled over all English passages. The Chinese passages are listed as manual review with their outputs shown; their judge scores are informational and do not count in the verdict. The verdict is `INCOMPLETE` (exit 2) when a call failed and data is missing.
 
+## Trigger eval
+
+`triggers/` holds a separate eval: 20 prompts (ten should trigger, ten should not) that check the skill description fires only on explicit STE requests. It uses skill-creator's `run_eval.py`, not `run_eval.py` in this folder. See `triggers/README.md` for the set and the decisions, and `triggers/RESULTS.md` for the latest results.
+
 ## Isolation: why these `claude` flags
 
 The user-level `~/.claude/CLAUDE.md` and settings can force the reply language and style. That would contaminate both arms. Every call therefore uses:
