@@ -23,19 +23,22 @@ and a "note" string explains why.
 
 Method (all detection is APPROXIMATE and heuristic, not a grammar parser):
 - Exempt content is removed before measuring: fenced code blocks, inline
-  code, blockquote lines (starting with ">") and Markdown heading lines.
+  code and blockquote lines (starting with ">"). Markdown heading lines
+  ("#" to "######" followed by a space, at line start) are a measurement
+  exclusion: they are not measured. A line like "#1 cause ..." is prose.
 - Language "auto": if more than 30% of the letters (after exempt removal) are
   CJK ideographs, kana or hangul, the language is "other" and no metrics are
   computed. "--lang en" and "--lang other" force the choice.
 - Sentences split on . ! ? followed by whitespace or end of text. Each list
-  item line is its own unit. e.g. / i.e. / etc. and a few more do not split.
+  item line ("-", "*", "+" or a number) is its own unit. e.g. / i.e. / etc. and a few more do not split.
 - A unit is "procedural" if it is a numbered list item or starts with a verb
   from a small built-in list of instruction verbs; otherwise "descriptive".
   Limits: procedural 20 words, descriptive 25. Exactly the limit is not over.
   The list marker is not counted as a word.
-- passive: a form of "be", optionally one -ly adverb, then a word ending in
-  -ed or a built-in irregular past participle. progressive: "be" + a word
-  ending in -ing. perfect: have/has/had (optional -ly adverb) + participle.
+- passive: a form of "be", optionally "not" or "never", optionally one -ly
+  adverb, then a word ending in -ed or a built-in irregular past participle.
+  progressive: "be" (same options) + a word ending in -ing. perfect:
+  have/has/had (same options) + participle.
   Misses and false positives are possible (e.g. adjectives that end in -ed).
 - noun_clusters: runs of 4 or more consecutive alphabetic words that are not in
   a built-in stoplist (function words, auxiliaries, -ly adverbs, instruction
@@ -47,8 +50,8 @@ Method (all detection is APPROXIMATE and heuristic, not a grammar parser):
   passive_progressive_ratio = (passive + progressive) / sentences (0.0 when
   there are no sentences).
 - pass, relaxed: over_limit_ratio <= 0.10 and passive_progressive_ratio <= 0.05.
-  pass, strict: relaxed AND no replacement hits AND no perfect forms AND no noun
-  clusters AND no passive in procedural sentences.
+  pass, strict: relaxed AND no replacement hits AND no progressive forms AND no
+  perfect forms AND no noun clusters AND no passive in procedural sentences.
 """
 
 import argparse
@@ -72,6 +75,7 @@ create delete
 
 BE_FORMS = frozenset("am is are was were be been being".split())
 HAVE_FORMS = frozenset("have has had".split())
+NEGATIONS = frozenset("not never".split())
 
 IRREGULAR_PARTICIPLES = frozenset("""
 done made set put shown known given taken written seen built sent kept held
@@ -111,7 +115,9 @@ STOPLIST = FUNCTION_WORDS | INSTRUCTION_VERBS
 _WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['’\-][A-Za-z0-9]+)*")
 _ALPHA_RE = re.compile(r"[A-Za-z]+")
 _LIST_RE = re.compile(r"^\s*(?:(\d+[.)])|[-*+])\s+(.*)$")
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_HEADING_RE = re.compile(r"#{1,6}(?:\s|$)")
+_STAR_BULLET_RE =re.compile(r"^(\s*\*\s+)(.*)$")
+_SENTENCE_SPLIT_RE =re.compile(r"(?<=[.!?])\s+")
 _SEPARATOR_CELL_RE = re.compile(r"^:?-{1,}:?$")
 
 
@@ -122,7 +128,8 @@ class InputError(Exception):
 # --- exempt content -------------------------------------------------------
 
 def strip_exempt(text):
-    """Remove fenced code, blockquote and heading lines, and inline code."""
+    """Remove exempt content (fenced code, blockquotes, inline code) and the
+    heading lines that are a measurement exclusion."""
     kept = []
     fence = None
     for line in text.splitlines():
@@ -132,7 +139,7 @@ def strip_exempt(text):
             if m:
                 fence = m.group(1)[0] * len(m.group(1))
                 continue
-            if stripped.startswith(">") or stripped.startswith("#"):
+            if stripped.startswith(">") or _HEADING_RE.match(stripped):
                 continue
             kept.append(line)
         else:
@@ -141,7 +148,15 @@ def strip_exempt(text):
     text = "\n".join(kept)
     text = re.sub(r"``.+?``|`[^`\n]*`", "", text)
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # links keep their label
-    return text.replace("*", "")
+    return "\n".join(_strip_emphasis(line) for line in text.split("\n"))
+
+
+def _strip_emphasis(line):
+    """Drop emphasis asterisks but keep a leading "* " bullet marker."""
+    m = _STAR_BULLET_RE.match(line)
+    if m:
+        return m.group(1) + m.group(2).replace("*", "")
+    return line.replace("*", "")
 
 
 # --- language -------------------------------------------------------------
@@ -190,11 +205,11 @@ def split_units(text):
 
 
 def split_sentences(text):
-    protected = text
+    placeholder_text = text
     for i, abbr in enumerate(ABBREVIATIONS):
-        protected = re.sub(re.escape(abbr), f"\x00{i}\x00", protected,
-                           flags=re.IGNORECASE)
-    parts = _SENTENCE_SPLIT_RE.split(protected.strip())
+        placeholder_text = re.sub(re.escape(abbr), f"\x00{i}\x00", placeholder_text,
+                                  flags=re.IGNORECASE)
+    parts = _SENTENCE_SPLIT_RE.split(placeholder_text.strip())
     result = []
     for part in parts:
         for i, abbr in enumerate(ABBREVIATIONS):
@@ -213,6 +228,10 @@ def _is_participle(tok):
     return tok.endswith("ed") and len(tok) >= 4 and tok not in NOT_PARTICIPLES
 
 
+def _is_ly_adverb(word):
+    return word.endswith("ly") and len(word) > 3
+
+
 def _is_ing(tok):
     return tok.endswith("ing") and len(tok) > 4 and tok not in NOT_PROGRESSIVE
 
@@ -223,7 +242,9 @@ def count_verb_forms(tokens):
         if tok not in BE_FORMS and tok not in HAVE_FORMS:
             continue
         j = i + 1
-        if j + 1 < len(tokens) and tokens[j].endswith("ly") and len(tokens[j]) > 3:
+        if j + 1 < len(tokens) and tokens[j] in NEGATIONS:
+            j += 1
+        if j + 1 < len(tokens) and _is_ly_adverb(tokens[j]):
             j += 1
         if j >= len(tokens):
             continue
@@ -249,7 +270,7 @@ def find_noun_clusters(sentence):
         is_cluster_word = (
             _ALPHA_RE.fullmatch(core) is not None
             and word not in STOPLIST
-            and not (word.endswith("ly") and len(word) > 3)
+            and not _is_ly_adverb(word)
         )
         if is_cluster_word:
             run.append(core)
@@ -267,6 +288,10 @@ def _close_run(run, clusters):
     run.clear()
 
 
+def _is_separator_row(cells):
+    return all(_SEPARATOR_CELL_RE.match(c) for c in cells if c) and any(cells)
+
+
 def load_replacements(path):
     try:
         with open(path, encoding="utf-8-sig") as fh:
@@ -281,10 +306,9 @@ def load_replacements(path):
             rows.append(cells)
     terms = []
     for i, cells in enumerate(rows):
-        if all(_SEPARATOR_CELL_RE.match(c) for c in cells if c) and any(cells):
+        if _is_separator_row(cells):
             continue
-        if i + 1 < len(rows) and all(
-                _SEPARATOR_CELL_RE.match(c) for c in rows[i + 1] if c) and any(rows[i + 1]):
+        if i + 1 < len(rows) and _is_separator_row(rows[i + 1]):
             continue  # header row
         term = cells[0].strip("`* ").lower() if cells else ""
         if term:
@@ -342,6 +366,7 @@ def evaluate_pass(strictness, sentences, totals):
     if strictness == "strict":
         ok = (ok
               and totals["replacement_hits"] == 0
+              and totals["progressive"] == 0
               and totals["perfect"] == 0
               and totals["noun_clusters"] == 0
               and not any(s["kind"] == "procedural" and s["passive"] for s in sentences))

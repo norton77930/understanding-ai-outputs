@@ -92,6 +92,15 @@ class SentenceLengthTests(unittest.TestCase):
         _, data = run("Steps:\n- The valve closes.\n- The pump stops.\n")
         self.assertEqual(data["totals"]["sentences"], 3)
 
+    def test_star_bullet_item_is_its_own_unit(self):
+        _, data = run("Steps:\n* The valve closes.\n* The pump stops.\n")
+        self.assertEqual(data["totals"]["sentences"], 3)
+
+    def test_emphasis_asterisks_are_not_list_markers(self):
+        _, data = run("The **valve** closes.\n*Then* the pump stops.\n")
+        self.assertEqual(data["totals"]["sentences"], 2)
+        self.assertEqual(data["sentences"][0]["words"], 3)
+
     def test_abbreviation_does_not_split_sentence(self):
         _, data = run("Use a tool, e.g. a hammer, to fix it. Then rest.")
         self.assertEqual(data["totals"]["sentences"], 2)
@@ -106,6 +115,16 @@ class VoiceTests(unittest.TestCase):
     def test_passive_with_adverb_and_irregular_participle(self):
         self.assertEqual(only_sentence("The door was quickly closed.")["passive"], 1)
         self.assertEqual(only_sentence("The data is sent to the host.")["passive"], 1)
+
+    def test_negated_passive_detected(self):
+        self.assertEqual(only_sentence("The file was not deleted.")["passive"], 1)
+        self.assertEqual(only_sentence("The file was never quickly deleted.")["passive"], 1)
+
+    def test_negated_perfect_detected(self):
+        self.assertEqual(only_sentence("The team has not finished the work.")["perfect"], 1)
+
+    def test_negated_progressive_detected(self):
+        self.assertEqual(only_sentence("The server is not running the job.")["progressive"], 1)
 
     def test_active_sentence_has_no_hits(self):
         s = only_sentence("The script deletes the file.")
@@ -139,6 +158,18 @@ class ExemptContentTests(unittest.TestCase):
                 "> The file is deleted by the script.\n\nRun the tool.\n")
         _, data = run(text)
         self.assertEqual(data["totals"]["passive"], 0)
+        self.assertEqual(data["totals"]["sentences"], 1)
+
+    def test_hash_without_space_is_prose_not_heading(self):
+        _, data = run("#1 cause is the old pump.\n")
+        self.assertEqual(data["totals"]["sentences"], 1)
+
+    def test_seven_hashes_is_prose_not_heading(self):
+        _, data = run("####### The pump stops.\n")
+        self.assertEqual(data["totals"]["sentences"], 1)
+
+    def test_deep_heading_is_not_measured(self):
+        _, data = run("###### The file is deleted by the script\n\nRun the tool.\n")
         self.assertEqual(data["totals"]["sentences"], 1)
 
     def test_text_outside_code_block_still_measured(self):
@@ -227,6 +258,12 @@ class PassFailTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(data["pass"])
         self.assertEqual(data["strictness"], "strict")
+
+    def test_strict_fails_on_progressive_form(self):
+        # 1 progressive in 20 sentences is exactly 5%: relaxed passes.
+        text = "The server is running the job. " + "The pump stops. " * 19
+        self.assertTrue(run(text)[1]["pass"])
+        self.assertFalse(run(text, "--strictness", "strict")[1]["pass"])
 
     def test_strict_fails_on_replacement_hit_relaxed_passes(self):
         text = "Utilize the tool."
