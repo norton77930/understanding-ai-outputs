@@ -3,11 +3,11 @@ name: ste-writing
 description: Write or rewrite text in Simplified Technical English (STE) style. Use ONLY when the user explicitly asks for STE, Simplified Technical English, ASD-STE100, or "80% STE" writing, such as "explain X in STE" or "rewrite this in STE". Never use for ordinary answers.
 ---
 
-# STE writing (relaxed)
+# STE writing
 
 Write in a controlled, easy-to-read style so the reader spends effort on the ideas, not on the sentences. This skill is inspired by ASD-STE100. It is not official and is not endorsed by ASD.
 
-This version uses relaxed strictness: the core rules below, in natural wording. English output carries no label or note about the style. Full rules with before/after examples are in `references/rules.md`. Read it when a case is unclear.
+There are two strictness levels. **Relaxed** is the default: the core rules below, in natural wording. English relaxed output carries no label or note about the style. **Strict** is only for a user who asks for "strict STE" or "full STE". It adds the rules in "Strict strictness" below. Full rules with before/after examples are in `references/rules.md`. Read it when a case is unclear.
 
 ## Two uses
 
@@ -34,6 +34,17 @@ Example of rule 7:
 
 - CAUTION: Do not delete the `data/` folder. The app loses all saved records.
 
+## Strict strictness
+
+Use strict only when the user asks for "strict STE" or "full STE". Apply every core rule above, and also:
+
+- Use no progressive form ("is running") and no perfect form ("has finished"). Use the simple form.
+- Use no passive voice in procedures. Descriptions should stay active too.
+- Keep noun clusters to 3 words or fewer. Write "the timeout of the connection pool", not "the connection pool timeout setting value".
+- Use no word or phrase from `references/replacements.md`. Use the plain choice in its second column. The list covers inflections ("utilize" also bans "utilizes" and "utilized").
+
+End strict English output with ONE short note line: "Written in strict STE (not official ASD-STE100)." Put nothing else about the style in the answer. Relaxed output has no note.
+
 ## Exempt content
 
 Leave these unchanged, exactly as written:
@@ -59,14 +70,14 @@ When the answer is not in English, apply STE principles only:
 - one term per concept
 - one topic per paragraph
 
-Do not translate English rules word for word. End the answer with one short note line, in the answer language, that says only STE principles were applied. See `references/rules.md` for an example.
+Do not translate English rules word for word. The strict-only rules and the replacement list do not apply. End the answer with one short note line, in the answer language, that says only STE principles were applied. See `references/rules.md` for an example.
 
 ## Before you answer (self-check)
 
 Measure the draft, then fix it. The checker in `scripts/ste_check.py` is the source of truth for the length limits and the counts.
 
-1. If Python is available and the draft is English, run the checker from this skill's `scripts/` folder. Send the draft on stdin: `python <skill folder>/scripts/ste_check.py --strictness relaxed --lang auto`. Use `python3` if `python` is missing.
-2. Read the JSON. Fix each sentence with `over_limit` true or a `passive` or `progressive` count above 0.
+1. If Python is available and the draft is English, run the checker from this skill's `scripts/` folder. Send the draft on stdin: `python <skill folder>/scripts/ste_check.py --strictness relaxed --lang auto`. Use `python3` if `python` is missing. For strict, use `--strictness strict --replacements <skill folder>/references/replacements.md`.
+2. Read the JSON. Fix each sentence with `over_limit` true or a `passive` or `progressive` count above 0. For strict, also fix each `perfect` count, each entry in `noun_clusters`, each entry in `replacement_hits`, and each passive in a procedure.
 3. Run the checker one more time. Fix what it still flags, then answer. Do not loop further.
 4. If Python is not available, or the draft is not English, use this checklist on the draft:
    - Is every sentence within its limit (20 procedural, 25 descriptive)?
@@ -76,5 +87,6 @@ Measure the draft, then fix it. The checker in `scripts/ste_check.py` is the sou
    - Does each paragraph hold one topic, in 6 sentences or fewer?
    - Are procedures numbered, and are hazards marked WARNING or CAUTION?
    - Is exempt content unchanged?
+   - Strict only: no progressive or perfect forms, no passive in procedures, no noun cluster over 3 words, no word from `references/replacements.md`, and one note line at the end?
 
 Do not show the check to the user. The checker ignores exempt content.

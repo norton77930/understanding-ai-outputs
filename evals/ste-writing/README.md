@@ -7,6 +7,7 @@ Evals live here, outside `skills/ste-writing/`, so installing the skill does not
 ```
 python evals/ste-writing/run_eval.py                  # all eight passages, both arms, judge, report
 python evals/ste-writing/run_eval.py --passages 01,03 # a subset (id or number prefix)
+python evals/ste-writing/run_eval.py --strictness strict   # strict arm (default: relaxed)
 python evals/ste-writing/run_eval.py --dry-run        # print the commands, call nothing
 python evals/ste-writing/run_eval.py --model sonnet   # pick a model (default: claude CLI default)
 python -m unittest discover -s evals/ste-writing -p test_run_eval.py   # unit tests (pure logic only)
@@ -18,16 +19,17 @@ The passages are in `passages/` and are DRAFT until the maintainer approves them
 
 ## What one run does
 
-1. Ask an agent "Rewrite the following text in STE." for each passage. The request is the same in both arms.
+1. Ask an agent "Rewrite the following text in STE." for each passage (strict: "Rewrite the following text in strict STE."). The request is the same in both arms.
    - with-skill: `claude -p ... --plugin-dir <repo root>`
    - baseline: the same command without `--plugin-dir`
-2. Measure each output with `skills/ste-writing/scripts/ste_check.py` (CLI only, relaxed strictness). The Chinese passages report "metrics not available".
+2. Measure each output with `skills/ste-writing/scripts/ste_check.py` (CLI only). Relaxed runs use `--strictness relaxed`. Strict runs use `--strictness strict --replacements skills/ste-writing/references/replacements.md`, so the report also shows replacement-list hits per arm. The Chinese passages report "metrics not available".
 3. One judge call per passage sees the original and both outputs in randomized A/B order (reproducible from `--seed`). It returns `{meaning_a, meaning_b, more_readable, reason}`. The harness maps A/B back to arms.
 4. Write the report. Verdict is for the with-skill arm against the relaxed thresholds from issue #3:
    - at least 90% of sentences within the length limit
    - passive plus progressive at most 5% of sentences
    - meaning at least 4/5 on every passage
    - readability preferred over baseline overall (with-skill wins greater than baseline wins; ties count for neither)
+   - strict only: zero replacement-list hits in the with-skill arm (baseline hits are reported, not gated)
 
 Sentence counts are pooled over all English passages. The Chinese passages are listed as manual review with their outputs shown; their judge scores are informational and do not count in the verdict. The verdict is `INCOMPLETE` (exit 2) when a call failed and data is missing.
 

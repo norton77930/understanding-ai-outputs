@@ -1,8 +1,8 @@
-# STE writing rules (relaxed)
+# STE writing rules
 
 These rules are inspired by ASD-STE100. They are written in our own words. They are not official, and ASD does not endorse them. They do not include the ASD-STE100 dictionary.
 
-This file holds the full relaxed rule set. `SKILL.md` holds the short version.
+This file holds the full rule set for both strictness levels. `SKILL.md` holds the short version. Relaxed is the default. Strict is only for a user who asks for "strict STE" or "full STE".
 
 ## Measurement
 
@@ -90,6 +90,48 @@ CAUTION: Do not delete the `data/` folder. The app loses all saved records.
 
 Keep the note short. Use WARNING and CAUTION only for real risk, not for general advice.
 
+## Strict rules
+
+Strict strictness is every relaxed rule above, plus the four rules below. Use it only when the user asks for "strict STE" or "full STE". The checker call for strict is `python scripts/ste_check.py --strictness strict --replacements references/replacements.md --lang auto`. A strict draft passes only when it has no progressive form, no perfect form, no noun cluster, no passive in a procedure, and no replacement-list hit, on top of the relaxed limits.
+
+### S1. No progressive or perfect forms
+
+Use the simple present or simple past. Do not use "is running" (progressive) or "has finished" (perfect).
+
+Before: "The worker is waiting for the queue. It has finished the first job."
+
+After: "The worker waits for the queue. It finished the first job."
+
+### S2. No passive voice in procedures
+
+Every step names the actor or gives a command. Strict also keeps descriptions active when you can.
+
+Before: "1. The cache is cleared. 2. The build is started."
+
+After: "1. Clear the cache. 2. Start the build."
+
+### S3. Short noun clusters
+
+A noun cluster is a run of nouns that modify each other. Keep it to 3 words or fewer. Split a longer one with "of", "for" or "in", or rewrite it as a clause. The checker flags a run of 4 or more words that are not function words or instruction verbs.
+
+Before: "Check the database connection pool timeout setting."
+
+After: "Check the timeout setting of the connection pool."
+
+### S4. Words from the replacement list
+
+Use none of the words or phrases in `replacements.md`. Use the plain choice from the second column. Quoted source text and code stay as they are.
+
+Before: "Prior to the build, utilize the cache in order to save time."
+
+After: "Before the build, use the cache to save time."
+
+The list is our own, about 60 entries. It is not the ASD-STE100 dictionary. The file states its source and license. To propose an entry, add one row with the term, a plain choice and a short note. Add a word only if the plain choice works in every context. Leave out a word that is also the normal technical term (for example "execute" for running code).
+
+### Strict note
+
+End strict English output with one short note line: "Written in strict STE (not official ASD-STE100)." Do not add other labels. Relaxed English output has no note. Non-English output follows the non-English section below, and the strict-only rules do not apply there.
+
 ## Exempt content
 
 Do not change exempt content. Copy it exactly, because the reader may paste it somewhere.
@@ -148,6 +190,6 @@ Notes on the example: each step has one action in active voice. The text uses on
 
 ## Self-check
 
-1. Python available and English draft: run `python scripts/ste_check.py --strictness relaxed --lang auto` with the draft on stdin. Fix each flagged sentence. Run it one more time, then answer.
+1. Python available and English draft: run `python scripts/ste_check.py --strictness relaxed --lang auto` with the draft on stdin. For strict, run `python scripts/ste_check.py --strictness strict --replacements references/replacements.md --lang auto`. Fix each flagged sentence. Run it one more time, then answer.
 2. Python not available, or non-English draft: use the checklist in `SKILL.md`.
 3. Do not show the check to the user.

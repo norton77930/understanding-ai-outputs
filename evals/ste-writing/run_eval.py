@@ -5,12 +5,14 @@ Usage:
     python evals/ste-writing/run_eval.py [--passages 01,03,05] [--model MODEL]
                                          [--dry-run] [--workers N] [--seed S]
                                          [--timeout SECONDS]
+                                         [--strictness relaxed|strict]
 
 For each passage the harness asks an agent "Rewrite the following text in STE."
-in two arms (same request in both):
+(strict: "... in strict STE.") in two arms (same request in both):
     with-skill  claude -p ... --plugin-dir <repo root>
     baseline    claude -p ...   (no plugin)
-Each output is measured with skills/ste-writing/scripts/ste_check.py (relaxed).
+Each output is measured with skills/ste-writing/scripts/ste_check.py (relaxed or
+strict; strict also loads the replacement list, which gives the replacement hits).
 One judge call per passage sees the original and both outputs in randomized A/B
 order and returns meaning scores (1-5) and the more readable output.
 Raw outputs and the report go to evals/ste-writing/runs/<timestamp>/.
@@ -37,13 +39,18 @@ REPO_ROOT = HERE.parent.parent
 PASSAGES_DIR = HERE / "passages"
 RUNS_DIR = HERE / "runs"
 CHECKER = REPO_ROOT / "skills" / "ste-writing" / "scripts" / "ste_check.py"
+REPLACEMENTS = REPO_ROOT / "skills" / "ste-writing" / "references" / "replacements.md"
 # Neutral cwd outside the repo, so this repo's CLAUDE.md and .claude/ settings do not apply.
 SCRATCH_CWD = Path(os.environ.get("STE_EVAL_CWD") or Path(tempfile.gettempdir()) / "ste-writing-eval")
 
-REQUEST = "Rewrite the following text in STE."
+REQUESTS = {"relaxed": "Rewrite the following text in STE.",
+            "strict": "Rewrite the following text in strict STE."}
+STRICTNESS = tuple(REQUESTS)
 ARMS = ("with-skill", "baseline")
 
-# Relaxed acceptance thresholds (issue #3).
+# Relaxed acceptance thresholds (issue #3). Strict adds zero replacement-list
+# hits in the with-skill arm.
+MAX_REPLACEMENT_HITS = 0
 MIN_WITHIN_LIMIT_RATIO = 0.90
 MAX_PASSIVE_PROGRESSIVE_RATIO = 0.05
 MIN_MEANING = 4
@@ -76,6 +83,11 @@ Answer with ONE JSON object and nothing else, in this form:
 # --------------------------------------------------------------------------
 # Pure logic (unit-tested in test_run_eval.py)
 # --------------------------------------------------------------------------
+
+def request_for(strictness):
+    """The rewrite request for a strictness. Both arms get the same one."""
+    return REQUESTS[strictness]
+
 
 def passage_language(passage_id):
     """Return "zh" for the Chinese passages (named ...-zh-...), else "en"."""
@@ -140,7 +152,7 @@ def aggregate(results):
     english = [r for r in results if r["lang"] == "en"]
     agg = {}
     for arm in ARMS:
-        sentences = over = passive = progressive = 0
+        sentences = over = passive = progressive = hits = 0
         meanings = []
         missing_metrics = 0
         for r in english:
@@ -150,6 +162,7 @@ def aggregate(results):
                 over += totals["over_limit"]
                 passive += totals["passive"]
                 progressive += totals["progressive"]
+                hits += totals.get("replacement_hits", 0)
             else:
                 missing_metrics += 1
             meanings.append(r["arms"][arm].get("meaning"))
@@ -158,6 +171,7 @@ def aggregate(results):
             "over_limit": over,
             "passive": passive,
             "progressive": progressive,
+            "replacement_hits": hits,
             "over_limit_ratio": over / sentences if sentences else None,
             "passive_progressive_ratio": (passive + progressive) / sentences if sentences else None,
             "meaning_scores": meanings,
@@ -171,8 +185,11 @@ def aggregate(results):
     return agg
 
 
-def evaluate(agg):
-    """Check the with-skill arm against the relaxed thresholds.
+def evaluate(agg, strictness="relaxed"):
+    """Check the with-skill arm against the thresholds for the strictness.
+
+    Strict = the relaxed thresholds plus zero replacement-list hits in the
+    with-skill arm (baseline hits are reported, not gated).
 
     Returns {"checks": {name: {"value", "threshold", "pass"}}, "verdict": ...}.
     A check's "pass" is True, False, or None when its data is missing.
@@ -208,6 +225,11 @@ def evaluate(agg):
             "threshold": "with-skill wins > baseline wins",
             "pass": readability_pass},
     }
+    if strictness == "strict":
+        hits = arm["replacement_hits"] if complete else None
+        checks["replacement_hits"] = {
+            "value": hits, "threshold": f"== {MAX_REPLACEMENT_HITS}",
+            "pass": None if hits is None else hits <= MAX_REPLACEMENT_HITS}
     outcomes = [c["pass"] for c in checks.values()]
     if False in outcomes:
         verdict = "FAIL"
@@ -228,11 +250,13 @@ def render_report(meta, results, agg, evaluation):
     out.append(f"# ste-writing eval report ({meta['timestamp']})\n")
     out.append(f"- Model: {meta['model'] or 'claude CLI default'}")
     out.append(f"- claude version: {meta['claude_version']}")
-    out.append(f"- Request: `{REQUEST}`")
+    out.append(f"- Request: `{request_for(meta['strictness'])}`")
     out.append(f"- Passages: {', '.join(r['id'] for r in results)}")
     out.append(f"- Judge order seed: {meta['seed']}")
-    out.append(f"- Strictness: relaxed. Gates use English passages only.\n")
-    out.append(f"## Verdict (with-skill, relaxed thresholds): {evaluation['verdict']}\n")
+    gates = ("relaxed thresholds" if meta["strictness"] == "relaxed"
+             else "relaxed thresholds plus zero replacement-list hits")
+    out.append(f"- Strictness: {meta['strictness']}. Gates use English passages only.\n")
+    out.append(f"## Verdict (with-skill, {gates}): {evaluation['verdict']}\n")
     out.append("| Check | Value | Threshold | Result |")
     out.append("|---|---|---|---|")
     for name, c in evaluation["checks"].items():
@@ -243,20 +267,20 @@ def render_report(meta, results, agg, evaluation):
                    f"{ {True: 'PASS', False: 'FAIL', None: 'n/a'}[c['pass']] } |")
     out.append("\n## Totals per arm (English passages)\n")
     out.append("| Arm | Sentences | Over limit | Over-limit ratio | Passive | Progressive | "
-               "Passive+progressive ratio | Meaning scores | Min meaning |")
-    out.append("|---|---|---|---|---|---|---|---|---|")
+               "Passive+progressive ratio | Replacement hits | Meaning scores | Min meaning |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|")
     for arm in ARMS:
         a = agg[arm]
         out.append(f"| {arm} | {a['sentences']} | {a['over_limit']} | {fmt_ratio(a['over_limit_ratio'])} | "
                    f"{a['passive']} | {a['progressive']} | {fmt_ratio(a['passive_progressive_ratio'])} | "
-                   f"{a['meaning_scores']} | {a['min_meaning']} |")
+                   f"{a['replacement_hits']} | {a['meaning_scores']} | {a['min_meaning']} |")
     w = agg["readability"]
     out.append(f"\nReadability wins (judge, English passages): with-skill {w['with-skill']}, "
                f"baseline {w['baseline']}, tie {w['tie']}.\n")
     out.append("## Per passage\n")
     out.append("| Passage | Arm | Sentences | Over limit | Passive | Progressive | Perfect | "
-               "Over-limit ratio | Passive+prog ratio | Meaning | More readable |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+               "Over-limit ratio | Passive+prog ratio | Replacement hits | Meaning | More readable |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in results:
         for arm in ARMS:
             d = r["arms"][arm]
@@ -266,9 +290,10 @@ def render_report(meta, results, agg, evaluation):
                 readable = "yes" if r["readable"] == arm else ("tie" if r["readable"] == "tie" else "no")
             if t:
                 cells = (t["sentences"], t["over_limit"], t["passive"], t["progressive"], t["perfect"],
-                         fmt_ratio(t["over_limit_ratio"]), fmt_ratio(t["passive_progressive_ratio"]))
+                         fmt_ratio(t["over_limit_ratio"]), fmt_ratio(t["passive_progressive_ratio"]),
+                         t.get("replacement_hits", 0))
             else:
-                cells = ("n/a",) * 7
+                cells = ("n/a",) * 8
             out.append(f"| {r['id']} | {arm} | " + " | ".join(str(c) for c in cells)
                        + f" | {d.get('meaning')} | {readable} |")
     out.append("\n## Judge reasons\n")
@@ -319,8 +344,8 @@ def build_judge_cmd(claude_exe, model):
     return cmd
 
 
-def rewrite_prompt(passage):
-    return f"{REQUEST}\n\n{passage.strip()}\n"
+def rewrite_prompt(passage, strictness="relaxed"):
+    return f"{request_for(strictness)}\n\n{passage.strip()}\n"
 
 
 def judge_prompt(original, text_a, text_b):
@@ -346,10 +371,17 @@ def run_claude(cmd, prompt, timeout):
     return (data.get("result") or "").strip(), meta
 
 
-def measure(text):
-    """Run ste_check.py (relaxed) on text through its CLI. Returns the parsed JSON."""
-    proc = subprocess.run([sys.executable, "-I", str(CHECKER), "-", "--strictness", "relaxed"],
-                          input=text, capture_output=True, text=True, encoding="utf-8")
+def checker_cmd(strictness):
+    """The ste_check.py argv for a strictness. Strict also loads the replacement list."""
+    cmd = [sys.executable, "-I", str(CHECKER), "-", "--strictness", strictness]
+    if strictness == "strict":
+        cmd += ["--replacements", str(REPLACEMENTS)]
+    return cmd
+
+
+def measure(text, strictness="relaxed"):
+    """Run ste_check.py on text through its CLI. Returns the parsed JSON."""
+    proc = subprocess.run(checker_cmd(strictness), input=text, capture_output=True, text=True, encoding="utf-8")
     if proc.returncode not in (0, 1):
         raise RuntimeError(f"ste_check.py failed ({proc.returncode}): {proc.stderr.strip()[:300]}")
     return json.loads(proc.stdout)
@@ -383,10 +415,10 @@ def process_passage(passage_id, original, args, claude_exe, run_dir):
         entry = {"output": None, "totals": None, "metrics": None, "meaning": None, "meta": None}
         result["arms"][arm] = entry
         try:
-            text, meta = run_claude(build_cmd(claude_exe, arm, args.model), rewrite_prompt(original), args.timeout)
+            text, meta = run_claude(build_cmd(claude_exe, arm, args.model), rewrite_prompt(original, args.strictness), args.timeout)
             entry["output"], entry["meta"] = text, meta
             (run_dir / f"{passage_id}.{arm}.txt").write_text(text + "\n", encoding="utf-8")
-            metrics = measure(text)
+            metrics = measure(text, args.strictness)
             entry["metrics"] = metrics
             entry["totals"] = metrics["totals"] if metrics.get("metrics_available") else None
         except Exception as exc:  # keep going; the report marks the gap
@@ -429,6 +461,8 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, default=4, help="parallel passages (default 4)")
     parser.add_argument("--seed", default=None, help="seed for the judge A/B order (default: timestamp)")
     parser.add_argument("--timeout", type=int, default=600, help="seconds per claude call (default 600)")
+    parser.add_argument("--strictness", choices=STRICTNESS, default="relaxed",
+                        help="relaxed (default) or strict: changes the request, the checker call and the gates")
     args = parser.parse_args(argv)
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -444,8 +478,8 @@ def main(argv=None):
             order = judge_order(args.seed, passage_id)
             print(f"[{passage_id}] judge (A={order[0]}, B={order[1]}): "
                   f"{' '.join(build_judge_cmd(claude_exe, args.model))}")
-            print(f"[{passage_id}] stdin: {REQUEST!r} + passage ({len(original)} characters)")
-        print(f"checker: {sys.executable} -I {CHECKER} - --strictness relaxed")
+            print(f"[{passage_id}] stdin: {request_for(args.strictness)!r} + passage ({len(original)} characters)")
+        print(f"checker: {' '.join(checker_cmd(args.strictness))}")
         return 0
 
     run_dir = RUNS_DIR / timestamp
@@ -460,8 +494,8 @@ def main(argv=None):
             print(f"done {r['id']}" + (f" (errors: {len(r['errors'])})" if r["errors"] else ""))
 
     agg = aggregate(results)
-    evaluation = evaluate(agg)
-    meta = {"timestamp": timestamp, "model": args.model, "seed": args.seed,
+    evaluation = evaluate(agg, args.strictness)
+    meta = {"timestamp": timestamp, "model": args.model, "seed": args.seed, "strictness": args.strictness,
             "claude_version": claude_version(claude_exe), "isolation_flags": ISOLATION_FLAGS}
     (run_dir / "report.md").write_text(render_report(meta, results, agg, evaluation), encoding="utf-8")
     (run_dir / "report.json").write_text(

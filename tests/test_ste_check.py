@@ -203,6 +203,20 @@ class ReplacementListTests(unittest.TestCase):
         s = only_sentence("The term replacement is plain.", "--replacements", str(REPLACEMENTS))
         self.assertEqual(s["replacement_hits"], [])
 
+    def test_single_word_term_matches_simple_inflections(self):
+        for word in ("utilizes", "utilized", "utilizing", "Utilizes"):
+            s = only_sentence(f"The pump {word} the tool.", "--replacements", str(REPLACEMENTS))
+            self.assertEqual(len(s["replacement_hits"]), 1, word)
+
+    def test_inflection_matching_respects_word_edges(self):
+        s = only_sentence("The utilizer and the reutilize step differ.",
+                          "--replacements", str(REPLACEMENTS))
+        self.assertEqual(s["replacement_hits"], [])
+
+    def test_multi_word_term_does_not_match_inflections(self):
+        s = only_sentence("The pump priors to the test.", "--replacements", str(REPLACEMENTS))
+        self.assertEqual(s["replacement_hits"], [])
+
     def test_no_hits_without_list_file(self):
         _, data = run("Utilize the tool. Check the pump prior to the test.")
         self.assertEqual(data["totals"]["replacement_hits"], 0)

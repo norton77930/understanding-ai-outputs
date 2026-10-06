@@ -45,7 +45,9 @@ Method (all detection is APPROXIMATE and heuristic, not a grammar parser):
   verbs). Very rough: other verbs and adjectives can join a run.
 - replacement list: a Markdown table; the first column of each data row is
   the term (case-insensitive, whole words, may have several words). Header and
-  separator rows are skipped. Without a list, replacement hits are zero.
+  separator rows are skipped. A single-word term also matches its simple
+  inflections (utilize: utilizes, utilized, utilizing); a multi-word term
+  matches as written. Without a list, replacement hits are zero.
 - Totals: over_limit_ratio = over_limit / sentences;
   passive_progressive_ratio = (passive + progressive) / sentences (0.0 when
   there are no sentences).
@@ -313,9 +315,24 @@ def load_replacements(path):
         term = cells[0].strip("`* ").lower() if cells else ""
         if term:
             words = term.split()
-            pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in words) + r"(?!\w)"
-            terms.append((term, re.compile(pattern, re.IGNORECASE)))
+            if len(words) == 1:
+                body = "(?:" + "|".join(re.escape(f) for f in _inflections(term)) + ")"
+            else:
+                body = r"\s+".join(re.escape(w) for w in words)
+            terms.append((term, re.compile(r"(?<!\w)" + body + r"(?!\w)", re.IGNORECASE)))
     return terms
+
+
+def _inflections(word):
+    """The word plus its simple inflections: -s/-es/-ies, -ed/-d/-ied, -ing."""
+    forms = {word, word + "s", word + "ed", word + "ing"}
+    if word.endswith("e"):
+        forms |= {word + "d", word[:-1] + "ing"}
+    if word.endswith(("s", "x", "z", "ch", "sh")):
+        forms.add(word + "es")
+    if word.endswith("y") and len(word) > 2 and word[-2] not in "aeiou":
+        forms |= {word[:-1] + "ies", word[:-1] + "ied"}
+    return sorted(forms, key=len, reverse=True)
 
 
 def measure_sentence(text, numbered, replacements):

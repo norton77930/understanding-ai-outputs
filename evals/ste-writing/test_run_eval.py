@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_eval  # noqa: E402
 
 
-def totals(sentences, over, passive=0, progressive=0, perfect=0):
+def totals(sentences, over, passive=0, progressive=0, perfect=0, hits=0):
     return {"sentences": sentences, "over_limit": over, "passive": passive,
-            "progressive": progressive, "perfect": perfect}
+            "progressive": progressive, "perfect": perfect, "replacement_hits": hits}
 
 
 def passage(pid, skill_totals, base_totals, skill_meaning, base_meaning, readable, lang="en"):
@@ -126,6 +126,48 @@ class EvaluateTest(unittest.TestCase):
         results[0]["arms"]["with-skill"]["meaning"] = None
         results[0]["readable"] = None
         self.assertEqual(self.verdict(results)["verdict"], "INCOMPLETE")
+
+
+class StrictEvaluateTest(unittest.TestCase):
+    def results(self, skill_hits, base_hits=7):
+        return [passage("01-a", totals(20, 2, 1, hits=skill_hits), totals(20, 10, 5, hits=base_hits),
+                        5, 5, "with-skill"),
+                passage("02-b", totals(20, 2), totals(20, 9, 4, hits=base_hits), 4, 5, "with-skill")]
+
+    def verdict(self, results, strictness):
+        return run_eval.evaluate(run_eval.aggregate(results), strictness)
+
+    def test_aggregate_pools_replacement_hits_per_arm(self):
+        agg = run_eval.aggregate(self.results(skill_hits=3, base_hits=7))
+        self.assertEqual(agg["with-skill"]["replacement_hits"], 3)
+        self.assertEqual(agg["baseline"]["replacement_hits"], 14)
+
+    def test_strict_passes_with_zero_hits_in_with_skill_arm(self):
+        ev = self.verdict(self.results(skill_hits=0), "strict")
+        self.assertEqual(ev["verdict"], "PASS")
+        self.assertTrue(ev["checks"]["replacement_hits"]["pass"])
+
+    def test_strict_fails_on_one_with_skill_hit(self):
+        ev = self.verdict(self.results(skill_hits=1), "strict")
+        self.assertEqual(ev["verdict"], "FAIL")
+        self.assertFalse(ev["checks"]["replacement_hits"]["pass"])
+
+    def test_baseline_hits_do_not_fail_strict(self):
+        self.assertEqual(self.verdict(self.results(skill_hits=0, base_hits=50), "strict")["verdict"], "PASS")
+
+    def test_relaxed_ignores_replacement_hits(self):
+        ev = self.verdict(self.results(skill_hits=5), "relaxed")
+        self.assertEqual(ev["verdict"], "PASS")
+        self.assertNotIn("replacement_hits", ev["checks"])
+
+    def test_strict_is_incomplete_when_metrics_are_missing(self):
+        results = self.results(skill_hits=0)
+        results[0]["arms"]["with-skill"]["totals"] = None
+        self.assertIsNone(self.verdict(results, "strict")["checks"]["replacement_hits"]["pass"])
+
+    def test_request_is_the_same_for_both_arms(self):
+        self.assertEqual(run_eval.request_for("relaxed"), "Rewrite the following text in STE.")
+        self.assertEqual(run_eval.request_for("strict"), "Rewrite the following text in strict STE.")
 
 
 if __name__ == "__main__":
