@@ -1,0 +1,12 @@
+{
+  "enabledPlugins": {
+    "mattpocock-skills@mattpocock": true
+  },
+  "skillOverrides": {
+    "grilling": "off",
+    "grill-me": "off",
+    "tdd": "off",
+    "diagnosing-bugs": "off",
+    "two-axis-review": "off"
+  }
+}

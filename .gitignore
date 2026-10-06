@@ -1,0 +1,19 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# Generated outputs from trying the skills (videos, renders, scratch)
+out/
+*.mp4
+*.wav
+*.mp3
+.env
+
+# Third-party reference material kept local only (copyright)
+reference/local/
