@@ -17,3 +17,7 @@ out/
 
 # Third-party reference material kept local only (copyright)
 reference/local/
+
+# Python
+__pycache__/
+*.pyc
