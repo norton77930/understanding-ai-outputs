@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slider demo</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); background-image: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
+</style>
+</head>
+<body>
+<h1>Slider demo</h1>
+<p>Move the slider. The number changes.</p>
+<p>拖動滑桿,數字會改變。</p>
+<label>Value <input id="v" type="range" min="0" max="10" value="3"></label>
+<output id="out">3</output>
+<button id="reset" type="button">Reset</button>
+<a href="#top">Top</a>
+<script>
+const v = document.getElementById("v");
+v.addEventListener("input", () => {
+  document.getElementById("out").textContent = v.value;
+});
+</script>
+</body>
+</html>
