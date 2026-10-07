@@ -21,3 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - README with both install routes, the skill list and the format ladder.
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.
 - MIT license.
+- `html-explainer` skill: turns a topic or AI output into one self-contained interactive HTML page
+  (`out/html-explainer/<slug>/index.html`) with a step-through, slider, layer toggle or reveal. Includes the
+  `page_check.py` static checker (standard library, with unit tests), the `render_check.py` headless-browser check
+  (screenshots for a layout check, no browser download), references for interaction patterns, the design baseline and
+  both checks, and a 20-query trigger eval.

@@ -1,0 +1,23 @@
+[
+  {"query": "make an interactive page that explains how binary search works, with buttons to step through each comparison", "should_trigger": true},
+  {"query": "Can you build me a small web explainer for compound interest? I want a slider for the years so my students can see the curve change", "should_trigger": true},
+  {"query": "做一個互動網頁說明 TCP 三次握手，讓我可以一步一步按下一步看封包怎麼跑", "should_trigger": true},
+  {"query": "請把下面這段回答做成可以互動的網頁，給新同事玩玩看：「快取命中時直接回傳資料；沒命中時才去資料庫查，再寫回快取。」", "should_trigger": true},
+  {"query": "turn this answer into an interactive web explainer: \"A Bloom filter sets k bits per item. A lookup that finds any of its k bits unset means the item is definitely absent; all bits set means probably present.\"", "should_trigger": true},
+  {"query": "I'd like an HTML demo that lets me toggle the layers of the OSI model on and off to see what each one adds to a packet", "should_trigger": true},
+  {"query": "build a single-file interactive HTML page explaining how softmax temperature changes the output distribution, with a temperature slider", "should_trigger": true},
+  {"query": "make me a little interactive explainer page about the Monty Hall problem where I can pick a door and see what happens if I switch", "should_trigger": true},
+  {"query": "can you create an interactive webpage that walks through how a hash table handles collisions? self-contained, I'll just open it in my browser", "should_trigger": true},
+  {"query": "幫我做一個互動式的網頁解說 Git rebase 跟 merge 的差別，可以切換看兩種歷史", "should_trigger": true},
+
+  {"query": "draw me a diagram of the OAuth 2.0 authorization code flow with PKCE, mermaid is fine", "should_trigger": false},
+  {"query": "make a short narrated explainer video of how DNS caching works for our onboarding deck", "should_trigger": false},
+  {"query": "explain how HTTPS certificate validation works in STE", "should_trigger": false},
+  {"query": "fix my CSS: the sidebar overlaps the main content on mobile. .sidebar { position: absolute; width: 300px } .main { margin-left: 0 }", "should_trigger": false},
+  {"query": "build me a landing page for my company, a small bakery in Taipei. hero image, menu section and a contact form", "should_trigger": false},
+  {"query": "explain the difference between the <section>, <article> and <div> HTML tags and when to use each", "should_trigger": false},
+  {"query": "write a React component that shows a paginated table of users with sorting by column", "should_trigger": false},
+  {"query": "my page throws 'Uncaught TypeError: Cannot read properties of null (reading addEventListener)' when it loads. what's wrong?", "should_trigger": false},
+  {"query": "explain step by step how the attention mechanism in a transformer works, I keep getting lost at the softmax part", "should_trigger": false},
+  {"query": "convert this markdown README to HTML so I can paste it into our wiki", "should_trigger": false}
+]
