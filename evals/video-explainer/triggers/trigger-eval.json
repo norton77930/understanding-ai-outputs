@@ -1,0 +1,23 @@
+[
+  {"query": "can you make a short explainer video of how DNS caching works? something I can drop into our support team's onboarding deck", "should_trigger": true},
+  {"query": "Make a 3Blue1Brown-style animated video that explains how a hash table handles collisions. a minute or so is fine", "should_trigger": true},
+  {"query": "請幫我做一支影片解釋 TCP 三次握手，要有旁白跟字幕，給實習生看", "should_trigger": true},
+  {"query": "我想把下面這段說明做成解說影片給新同事看：「git rebase 會把你分支上的 commit 拿下來，接到目標分支最新的 commit 後面，所以歷史會變成一直線。」", "should_trigger": true},
+  {"query": "make a YouTube Short (vertical, under 60 seconds) that explains why the sky is blue", "should_trigger": true},
+  {"query": "I need a narrated explainer video for my YouTube channel on how public-key encryption works, 1080p landscape please", "should_trigger": true},
+  {"query": "turn this answer into a video with voice-over and subtitles: \"A Kubernetes rolling update replaces pods one batch at a time. New pods must pass their readiness probe before old ones are removed, so the service never drops to zero.\"", "should_trigger": true},
+  {"query": "explain the Monty Hall problem as an animated video with narration, like a mini lesson for my students", "should_trigger": true},
+  {"query": "render me a 1 minute narrated animation (mp4 + srt) that explains how JWT signatures work", "should_trigger": true},
+  {"query": "幫我做一支 Shorts 直式短片，用動畫講解什麼是複利", "should_trigger": true},
+
+  {"query": "draw me a diagram of the OAuth 2.0 authorization code flow with PKCE, mermaid is fine", "should_trigger": false},
+  {"query": "make an interactive HTML page that explains how quicksort works, with a button to step through each partition", "should_trigger": false},
+  {"query": "explain how HTTPS certificate validation works in STE", "should_trigger": false},
+  {"query": "what's the difference between H.264 and H.265 for live streaming? which codec should I pick for 4K on a budget GPU?", "should_trigger": false},
+  {"query": "trim the first 10 seconds off my screen recording demo.mp4 and burn in the subtitles from demo.srt, give me the ffmpeg command", "should_trigger": false},
+  {"query": "recommend a few YouTube channels that explain machine learning visually, like 3Blue1Brown", "should_trigger": false},
+  {"query": "write a script for a 5 minute YouTube video about our startup's product launch. I'll record it myself on camera", "should_trigger": false},
+  {"query": "my manim scene fails with NameError: name 'ShowCreation' is not defined. what changed and how do I fix it?", "should_trigger": false},
+  {"query": "explain step by step how the attention mechanism in a transformer works, I keep getting lost at the softmax part", "should_trigger": false},
+  {"query": "summarize this YouTube video transcript in five bullet points: \"Today we look at three ways to cache API responses. First, in-memory caching...\"", "should_trigger": false}
+]

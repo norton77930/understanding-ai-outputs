@@ -161,7 +161,7 @@ def probe_kokoro(cache):
                     found_voices = True
     return report(
         found_model and found_voices,
-        f"Kokoro model files (about 340 MB: kokoro*.onnx and voices*.bin) are not in {cache}. "
+        f"Kokoro model files (about 350-380 MB per language set: kokoro*.onnx and voices*.bin) are not in {cache}. "
         "Ask the user to approve the download before fetching them.",
     )
 

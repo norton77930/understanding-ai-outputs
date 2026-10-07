@@ -30,11 +30,14 @@ import numpy as np
 from manim import (DOWN, LEFT, RIGHT, WHITE, FadeIn, FadeOut, LaggedStart, Paragraph,
                    Succession, Text, VGroup)
 
+import doctor  # stdlib only; owns the Traditional Chinese font order
+
 # Still time at the end of every ctx.beats() call (seconds). make_video.py
 # samples preview frames 0.2 s before the scene end, inside this hold.
 HOLD_SECONDS = 0.4
 
-ZH_FONTS = ("Microsoft JhengHei", "PingFang TC", "Noto Sans CJK TC")
+# Same order as the doctor's report (one source of truth: doctor.FONTS).
+ZH_FONTS = tuple(name for name, _, _ in doctor.FONTS)
 LATIN_FONTS = ("Segoe UI", "Helvetica Neue", "DejaVu Sans", "Noto Sans")
 
 # Font sizes for a frame whose shorter side is 8 Manim units (16:9 default).
