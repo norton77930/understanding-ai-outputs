@@ -8,10 +8,10 @@
 
 ## Viewer should understand
 
-- Both commands bring one branch's work into another, but they leave a different history.
-- Merge adds a new merge commit with two parents and keeps the original commits unchanged.
-- Rebase replays the feature commits on top of the latest main, giving a straight line but creating new commits (new hashes).
-- Do not rebase shared, already-pushed branches; rebase local personal branches, and merge shared ones.
+- 兩個指令都能把一個分支的修改整合進另一個分支,但留下的歷史不一樣。
+- merge 會新增一個有兩個父提交的合併提交,原本的提交都不變。
+- rebase 把 feature 的提交依序接到 main 最新的提交後面,歷史變成一直線,但這些提交是重新建立的(雜湊值改變)。
+- 已推送、別人也在用的共用分支不要 rebase;自己的本地分支可以 rebase,共用分支用 merge。
 
 ## Visual hints
 
