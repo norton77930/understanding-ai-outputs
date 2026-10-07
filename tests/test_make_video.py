@@ -188,6 +188,44 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(code, 1, data)
         self.assertFalse(data["ok"])
 
+    def test_scene_ids_must_be_safe_identifiers(self):
+        # Ids name frames/<id>.png and the scene function.
+        for sid in ("../x", "a/b", "con", "s:1", "1st", "s 1"):
+            board = load_storyboard()
+            board["scenes"][0]["id"] = sid
+            self.assert_invalid(board, "id.*" + re.escape(repr(sid)))
+
+    def test_voice_only_engine_override_is_invalid(self):
+        board = load_storyboard()
+        board["engine"] = {"voice": "af_heart"}
+        self.assert_invalid(board, "engine.*name")
+
+    def test_chinese_captions_keep_latin_words_whole(self):
+        board = load_storyboard()
+        board["lang"] = "zh-TW"
+        narration = "這個新的feature讓我們用Python和JavaScript處理streaming資料更方便"
+        board["scenes"] = [{"id": "a", "narration": narration}]
+        code, data = self.plan(board)
+        self.assertEqual(code, 0, data)
+        captions = data["scenes"][0]["captions"]
+        self.assertGreaterEqual(len(captions), 2, captions)
+        self.assertEqual("".join(captions), narration)
+        for word in ("feature", "Python", "JavaScript", "streaming"):
+            self.assertTrue(any(word in line for line in captions), (word, captions))
+
+    def test_unexpected_error_still_prints_one_json_object(self):
+        blocker = self.tmp / "not-a-folder"
+        blocker.write_text("", encoding="utf-8")
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(load_storyboard()), encoding="utf-8")
+        code, data = run([sys.executable, str(SCRIPT), "plan", str(path),
+                          "--out", str(blocker)])
+        self.assertEqual(code, 2, data)
+        self.assertFalse(data["ok"])
+        self.assertIsInstance(data["type"], str)
+        self.assertIsInstance(data["error"], str)
+        self.assertTrue(data["errors"], data)
+
 
 class StopRuleTests(unittest.TestCase):
     """Fallback and flag fields in `plan`, and the missing-tool stop (no render)."""
@@ -365,6 +403,30 @@ class EngineSelectionTests(unittest.TestCase):
         code, data = self.plan("zh-TW", offline=True)
         self.assertEqual(code, 0, data)
         self.assertEqual([d["name"] for d in data["downloads"]], list(KOKORO_ZH_FILES))
+        self.assertFalse(any(d["fallback"] for d in data["downloads"]), data["downloads"])
+
+    def test_zh_tw_lists_fallback_engine_downloads_up_front(self):
+        code, data = self.plan("zh-TW")
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["engine"]["name"], "edge-tts")
+        self.assertEqual([(d["name"], d["set"], d["fallback"]) for d in data["downloads"]],
+                         [(name, "kokoro-zh", True) for name in KOKORO_ZH_FILES])
+        self.assertTrue(any("fetch-models kokoro-zh" in n and "fallback" in n
+                            for n in data["notices"]), data["notices"])
+
+    def test_fetch_models_rejects_a_download_of_the_wrong_size(self):
+        source = self.tmp / "source.bin"
+        source.write_bytes(b"short")
+        for size, expected_code in ((999, 2), (5, 0)):
+            code, data = fetch_patched(self.cache, "voices-v1.0.bin", source.as_uri(), size)
+            self.assertEqual(code, expected_code, data)
+            target = self.cache / "kokoro"
+            self.assertFalse(list(target.glob("*.part")), list(target.iterdir()))
+            if expected_code:
+                self.assertFalse((target / "voices-v1.0.bin").exists())
+                self.assertTrue(any("999" in e and "5" in e for e in data["errors"]), data)
+            else:
+                self.assertEqual(data["files"][0]["downloaded"], True)
 
     def test_fetch_models_keeps_files_already_in_the_cache(self):
         self.install_models(KOKORO_EN_FILES)
@@ -373,6 +435,67 @@ class EngineSelectionTests(unittest.TestCase):
         self.assertEqual(code, 0, data)
         self.assertEqual([f["name"] for f in data["files"]], list(KOKORO_EN_FILES))
         self.assertFalse(any(f["downloaded"] for f in data["files"]))
+
+
+def fetch_patched(cache, name, url, size):
+    """Run `fetch-models kokoro-en` with the model table patched to one local file."""
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import make_video as m; "
+            "m.MODEL_SETS['kokoro-en'] = [(sys.argv[2], sys.argv[3], int(sys.argv[4]))]; "
+            "sys.exit(m.main(['fetch-models', 'kokoro-en']))")
+    env = dict(os.environ, VIDEO_EXPLAINER_CACHE=str(cache))
+    return run([sys.executable, "-c", code, str(SCRIPT.parent), name, url, str(size)], env=env)
+
+
+def fake_tool(directory, name, body=""):
+    """A fake executable found through PATH lookups (shutil.which)."""
+    if os.name == "nt":
+        path = directory / f"{name}.cmd"
+        path.write_text(f"@echo off\r\n{body}\r\n", encoding="utf-8")
+    else:
+        path = directory / name
+        path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        path.chmod(0o755)
+    return path
+
+
+class ScenesModuleTests(unittest.TestCase):
+    """`preview` up to and including narration, with fake tools. No ManimCE needed."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        for name in ("uv", "ffmpeg", "ffprobe"):
+            fake_tool(self.bin, name)
+
+    def preview(self, scenes_code, **env_extra):
+        scenes = self.tmp / "scenes.py"
+        scenes.write_text(scenes_code, encoding="utf-8")
+        env = dict(os.environ, VIDEO_EXPLAINER_DOCTOR_PATH=str(self.bin), **env_extra)
+        return run([sys.executable, str(SCRIPT), "preview", str(STORYBOARD), str(scenes),
+                    "--out", str(self.tmp / "out")], env=env)
+
+    def test_import_error_inside_scene_code_is_a_check_failure(self):
+        for code_line in ("from json import ShowCreation", "import no_such_module_xyz"):
+            code, data = self.preview(code_line + "\n")
+            self.assertEqual(code, 1, data)
+            self.assertTrue(any("ShowCreation" in e or "no_such_module_xyz" in e
+                                for e in data["errors"]), data)
+
+    def test_missing_manim_is_an_environment_error(self):
+        code, data = self.preview(
+            "raise ModuleNotFoundError(\"No module named 'manim'\", name='manim')\n")
+        self.assertEqual(code, 2, data)
+        self.assertTrue(any("uv run" in e for e in data["errors"]), data)
+
+    def test_hanging_media_tool_times_out(self):
+        pause = "ping -n 4 127.0.0.1 >nul" if os.name == "nt" else "sleep 3"
+        fake_tool(self.bin, "ffprobe", pause)
+        scenes = "def s1(ctx): pass\ndef s2(ctx): pass\ndef s3(ctx): pass\n"
+        code, data = self.preview(scenes, VIDEO_EXPLAINER_TOOL_TIMEOUT="0.5")
+        self.assertEqual(code, 2, data)
+        self.assertTrue(any("ffprobe" in e and "timed out" in e for e in data["errors"]), data)
 
 
 def ffprobe_seconds(path, stream):
@@ -599,6 +722,111 @@ class PresetEndToEndTests(unittest.TestCase):
         at = final["scenes"][0]["start"] + final["scenes"][0]["duration"] / 2
         band = frame_pixels(final["video"], at, 0.05, 0.62, 0.95, 0.76)
         self.assertLess(max(band), 40)
+
+
+SCENES_CARRY = '''
+from manim import WHITE, FadeIn, Square
+
+STATE = {}
+
+
+def s1(ctx):
+    title = ctx.title("Left over")
+    box = ctx.layout.fit(Square(color=WHITE, fill_opacity=1), ctx.layout.content, buff=1)
+    STATE["box"] = box
+    ctx.carry(box)
+    ctx.beats([([FadeIn(title), FadeIn(box)], 1)])
+
+
+def s2(ctx):
+    ctx.carry()
+    ctx.beats([(None, 1)])
+
+
+def s3(ctx):
+    ctx.beats([(None, 1)])
+'''
+
+SCENES_PRIVATE_ATTRIBUTE = '''
+from manim import FadeIn
+
+
+class NoEncodeJob:
+    """File writer stand-in without the private ManimCE 0.21 attribute."""
+
+    def __init__(self, real):
+        self.__dict__["_real"] = real
+
+    def __getattr__(self, name):
+        if name == "_current_encode_job":
+            raise AttributeError(name)
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real, name, value)
+
+
+def s1(ctx):
+    label = ctx.title("half drawn")
+
+    def explode(mob, dt):
+        if ctx.scene.renderer.time > ctx.start + 0.5:
+            raise ValueError("deliberate failure in s1")
+
+    label.add_updater(explode)
+    try:
+        ctx.beats([(FadeIn(label), 1)])
+    finally:
+        # Close the stream ourselves (no encoder thread left), then hide the
+        # attribute from make_video's recovery, as another ManimCE would.
+        writer = ctx.scene.renderer.file_writer
+        if writer._current_encode_job is not None:
+            writer.close_partial_movie_stream()
+        ctx.scene.renderer.file_writer = NoEncodeJob(writer)
+
+
+def s2(ctx):
+    ctx.beats([(None, 1)])
+
+
+def s3(ctx):
+    ctx.beats([(None, 1)])
+'''
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class SceneLifecycleEndToEndTests(unittest.TestCase):
+    """Clearing between scenes, and the guard on ManimCE internals."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        base = ["uv", "run", "--script", str(SCRIPT), "preview", str(STORYBOARD)]
+        cls.runs = {}
+        for key, code in (("carry", SCENES_CARRY), ("private", SCENES_PRIVATE_ATTRIBUTE)):
+            scenes = cls.tmp / f"scenes_{key}.py"
+            scenes.write_text(code, encoding="utf-8")
+            cls.runs[key] = run(base + [str(scenes), "--out", str(cls.tmp / key)])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_previous_scene_objects_fade_out_unless_carried(self):
+        code, data = self.runs["carry"]
+        self.assertEqual(code, 0, data)
+        frames = {s["id"]: s["frame"] for s in data["scenes"]}
+        title_area, center = (0.1, 0.02, 0.9, 0.16), (0.45, 0.45, 0.55, 0.55)
+        self.assertGreater(max(frame_pixels(frames["s1"], 0, *title_area)), 200)
+        for sid in ("s2", "s3"):
+            self.assertLess(max(frame_pixels(frames[sid], 0, *title_area)), 40, sid)
+            self.assertGreater(min(frame_pixels(frames[sid], 0, *center)), 200, sid)
+
+    def test_missing_manim_internal_fails_loudly(self):
+        code, data = self.runs["private"]
+        self.assertEqual(code, 2, data)
+        self.assertTrue(any("_current_encode_job" in e for e in data["errors"]), data)
 
 
 STORYBOARD_ZH = FIXTURES / "storyboard_zh.json"

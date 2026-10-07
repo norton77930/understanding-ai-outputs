@@ -22,7 +22,10 @@ Output keys:
 Flags:
     --quick       Skip the slow probes (manim import through `uv run`, and the
                   edge-tts network check). They report available=false,
-                  skipped=true.
+                  skipped=true. Run --quick first: the full manim probe
+                  installs ManimCE (same pins as make_video.py's inline
+                  dependency block, about 300 MB) into the uv cache, so run
+                  it only after the user agrees to that install.
 
 Environment overrides (used by the tests; also handy for debugging):
     VIDEO_EXPLAINER_DOCTOR_PATH   PATH used to look up uv, ffmpeg and ffprobe
@@ -44,6 +47,7 @@ holds a kokoro*.onnx file and a voices*.bin file.
 """
 
 import argparse
+import contextlib
 import glob
 import json
 import os
@@ -99,22 +103,57 @@ def probe_tool(name):
     return report(find_tool(name), TOOL_HINTS[name])
 
 
+MAKE_VIDEO = Path(__file__).resolve().parent / "make_video.py"
+# Approximate disk use measured on Windows (uv cache, Python 3.12).
+MANIM_INSTALL_MB = 300
+FULL_INSTALL_MB = 520
+
+
+def make_video_pins():
+    """(requires-python, manim requirement) from make_video.py's PEP 723 block,
+    with spaces after commas and before operators: a .cmd/.bat shim for uv
+    would otherwise read the bare < and > as redirection."""
+    text = MAKE_VIDEO.read_text(encoding="utf-8")
+    block = re.search(r"^# /// script$(.*?)^# ///$", text, re.M | re.S).group(1)
+    python = re.search(r'^#\s*requires-python\s*=\s*"([^"]+)"', block, re.M).group(1)
+    manim = re.search(r'^#\s*"(manim\s*[<>=!~][^"]*)"', block, re.M).group(1)
+
+    def spaced(spec):
+        return re.sub(r"\s*,\s*", ", ", re.sub(r"\s*([<>=!~]=?)\s*", r" \1", spec)).strip()
+
+    return spaced(python), spaced(manim)
+
+
+def manim_command(uv_path):
+    python, manim = make_video_pins()
+    return [uv_path, "run", "--no-project", "--python", python, "--with", manim,
+            "python", "-c", "import manim"]
+
+
+def manim_install_note():
+    _, manim = make_video_pins()
+    return (f"The full probe installs ManimCE ({manim}, about {MANIM_INSTALL_MB} MB) into the "
+            f"uv cache; the first preview installs about {FULL_INSTALL_MB} MB in total "
+            "(ManimCE, Kokoro, edge-tts).")
+
+
 def probe_manim(uv_path, quick):
     if quick:
-        return report(False, "Not probed (--quick). Run without --quick to check.", skipped=True)
+        return report(False, "Not probed (--quick). " + manim_install_note() +
+                      " Run without --quick after the user agrees to the install.", skipped=True)
     if not uv_path:
-        return report(False, "Install uv first; ManimCE is fetched through `uv run --with manim`.")
+        return report(False, "Install uv first; ManimCE is installed through `uv run`. " +
+                      manim_install_note())
+    cmd = manim_command(uv_path)
     try:
-        proc = subprocess.run(
-            [uv_path, "run", "--with", "manim", "python", "-c", "import manim"],
-            capture_output=True,
-            timeout=MANIM_TIMEOUT,
-        )
+        proc = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL,
+                              timeout=MANIM_TIMEOUT)
         ok = proc.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         ok = False
-    return report(ok, "`uv run --with manim python -c \"import manim\"` failed; "
-                      "check the network and re-run it to see the error.")
+    shown = " ".join(f'"{a}"' if " " in a else a for a in ["uv", *cmd[1:]])
+    return report(ok, f"`{shown}` failed; check the network and re-run it to see the error. " +
+                  manim_install_note())
 
 
 # --- network ----------------------------------------------------------------
@@ -212,7 +251,8 @@ def fc_list_lines():
     if not fc_list:
         return []
     try:
-        proc = subprocess.run([fc_list], capture_output=True, timeout=30)
+        proc = subprocess.run([fc_list], capture_output=True, stdin=subprocess.DEVNULL,
+                              timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return []
     return proc.stdout.decode("utf-8", errors="replace").splitlines()
@@ -258,7 +298,8 @@ def build_report(quick):
 
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8")
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Report what this machine can do for a video job.")
     parser.add_argument("--quick", action="store_true",
                         help="skip the manim import and network probes")

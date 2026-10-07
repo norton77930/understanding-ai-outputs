@@ -19,13 +19,16 @@ Usage:
 Each command prints one JSON object to stdout. Exit codes:
     0  success
     1  a check failed (invalid storyboard, missing scene function,
-       no narration engine for the language), or scene code raised during
-       preview/final: each scene in "scenes" then has "status" ("ok",
-       "fallback" or "failed") and failed ones an "error" {type, message,
-       traceback}. The other scenes still render; final writes no video.
+       no narration engine for the language, scenes module fails to import),
+       or scene code raised during preview/final: each scene in "scenes"
+       then has "status" ("ok", "fallback" or "failed") and failed ones an
+       "error" {type, message, traceback}. The other scenes still render;
+       final writes no video.
     2  environment or runtime error (missing uv/ffmpeg/ffprobe, reported in
-       "missing_tools" with the doctor's install hints; missing model;
-       render failure outside scene code)
+       "missing_tools" with the doctor's install hints; ManimCE not
+       installed; missing or wrong-size model; an ffmpeg/ffprobe call over
+       TOOL_TIMEOUT seconds; render failure outside scene code; any
+       unexpected error, which adds "error" and "type")
 
 Stop rules, set per scene in the storyboard:
     "fallback": true    draw the helper's fallback (title plus 2-4 bullets from
@@ -62,6 +65,7 @@ import contextlib
 import importlib.util
 import hashlib
 import json
+import keyword
 import os
 import re
 import shutil
@@ -118,6 +122,11 @@ PRESETS = {
 DEFAULT_PRESET = "explainer"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# Scene ids name frames/<id>.png and the scene function: lower-case Python
+# names that are not keywords or Windows device names.
+SCENE_ID_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+WINDOWS_DEVICE_NAMES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
+                        *(f"lpt{i}" for i in range(1, 10))}
 HANZI_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 LATIN_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*")
 SENTENCE_RE = re.compile(r"[^.!?。！？]+[.!?。！？]*")
@@ -195,6 +204,8 @@ def split_captions(text, lang, max_chars=None):
 
 
 def _wrap_zh(sentence, limit):
+    """Wrap at clause marks first, then between characters, never inside a run
+    of Latin letters and digits (unless the run alone exceeds the limit)."""
     parts = re.findall(r"[^，、；：,;:]+[，、；：,;:]?", sentence)
     lines, current = [], ""
     for part in parts:
@@ -203,10 +214,15 @@ def _wrap_zh(sentence, limit):
             continue
         if current:
             lines.append(current)
-        while len(part) > limit:
-            lines.append(part[:limit])
-            part = part[limit:]
-        current = part
+        current = ""
+        for token in re.findall(LATIN_WORD_RE.pattern + r"|.", part, re.S):
+            if len(current) + len(token) > limit and current:
+                lines.append(current)
+                current = ""
+            while len(token) > limit:
+                lines.append(token[:limit])
+                token = token[limit:]
+            current += token
     if current:
         lines.append(current)
     return lines
@@ -442,18 +458,37 @@ def select_engine(board, offline=False):
             "notices": notices}
 
 
-def downloads_for(selection):
-    """Model files the selected engine still needs, as plan reports them."""
+def downloads_for(selection, fallback=False):
+    """Model files the selected engine still needs, as plan reports them.
+    fallback marks files that only the run-time fallback engine needs."""
     engine = ENGINES[selection["name"]]
-    return [{"name": name, "url": url, "size_mb": size_mb(size), "set": set_name}
+    return [{"name": name, "url": url, "size_mb": size_mb(size), "set": set_name,
+             "fallback": fallback}
             for set_name, name, url, size in engine.missing_models(selection["voice"])]
+
+
+def plan_downloads(selection):
+    """Downloads for the selected engine, then for its fallback engine (if any),
+    so the user approves both before the first render."""
+    downloads = downloads_for(selection)
+    if selection["fallback"]:
+        listed = {d["name"] for d in downloads}
+        downloads += [d for d in downloads_for(selection["fallback"], fallback=True)
+                      if d["name"] not in listed]
+    return downloads
 
 
 def download_notice(downloads):
     total = round(sum(d["size_mb"] for d in downloads), 1)
     sets = " ".join(dict.fromkeys(d["set"] for d in downloads))
-    return (f"Model files ({total} MB) are missing from {doctor.cache_dir()}. Ask the user "
-            f"before downloading, then run `make_video.py fetch-models {sets}`.")
+    notice = (f"Model files ({total} MB) are missing from {doctor.cache_dir()}. Ask the user "
+              f"before downloading, then run `make_video.py fetch-models {sets}`.")
+    spare = [d for d in downloads if d["fallback"]]
+    if spare:
+        spare_sets = ", ".join(dict.fromkeys(d["set"] for d in spare))
+        notice += (f" {spare_sets} ({round(sum(d['size_mb'] for d in spare), 1)} MB) is only "
+                   "for the offline fallback, used when edge-tts is unreachable at render time.")
+    return notice
 
 
 # ---------------------------------------------------------------- storyboard
@@ -484,7 +519,10 @@ def validate(board):
         errors.append(f"unknown preset {preset!r}; known presets: {', '.join(PRESETS)}")
     engine = board.get("engine")
     name = engine.get("name") if isinstance(engine, dict) else engine
-    if name is not None and name not in ENGINES:
+    if isinstance(engine, dict) and name is None:
+        errors.append("engine object needs a name, for example "
+                      "{\"name\": \"kokoro\", \"voice\": \"zf_001\"}")
+    elif name is not None and name not in ENGINES:
         errors.append(f"unknown engine {name!r}; known engines: {', '.join(ENGINES)}")
     scenes = board.get("scenes")
     if not isinstance(scenes, list) or not scenes:
@@ -498,6 +536,11 @@ def validate(board):
         sid = scene.get("id")
         if not isinstance(sid, str) or not sid.strip():
             errors.append(f"scene #{i + 1} has no id")
+        elif (not SCENE_ID_RE.match(sid) or keyword.iskeyword(sid)
+              or sid in WINDOWS_DEVICE_NAMES):
+            errors.append(f"scene id {sid!r} must be a lower-case Python name (letters, digits "
+                          "and underscores, not starting with a digit), not a keyword and not "
+                          "a Windows device name such as con")
         elif sid in seen:
             errors.append(f"duplicate scene id {sid!r}")
         else:
@@ -548,7 +591,7 @@ def cmd_plan(args):
     offline = args.offline or network_offline()
     selection = select_engine(board, offline=offline)
     notices = list(selection["notices"])
-    downloads = downloads_for(selection)
+    downloads = plan_downloads(selection)
     if downloads:
         notices.append(download_notice(downloads))
     preset = PRESETS[board["preset"]]
@@ -585,12 +628,31 @@ def cmd_plan(args):
 
 # ---------------------------------------------------------------- media tools
 
+# Seconds one ffmpeg/ffprobe call may take before it counts as hung.
+# VIDEO_EXPLAINER_TOOL_TIMEOUT overrides it (used by the tests).
+TOOL_TIMEOUT = 120
+
+
+def tool_timeout():
+    return float(os.environ.get("VIDEO_EXPLAINER_TOOL_TIMEOUT") or TOOL_TIMEOUT)
+
+
 def run_tool(cmd):
+    """Run a media tool found through the doctor's PATH lookup. Never reads
+    stdin; a call that runs longer than tool_timeout() stops with exit 2."""
+    exe = doctor.find_tool(cmd[0])
+    if exe is None:
+        raise RuntimeFailure(f"{cmd[0]} not found on PATH; run the doctor script")
+    timeout = tool_timeout()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace")
+        proc = subprocess.run([exe, *cmd[1:]], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                              timeout=timeout)
     except FileNotFoundError:
         raise RuntimeFailure(f"{cmd[0]} not found on PATH; run the doctor script")
+    except subprocess.TimeoutExpired:
+        raise RuntimeFailure(f"{cmd[0]} timed out after {timeout:g} s and was stopped: "
+                             f"{' '.join(cmd[1:])[:300]}")
     if proc.returncode:
         raise RuntimeFailure(f"{cmd[0]} failed: {proc.stderr.strip()[-1500:]}")
     return proc.stdout
@@ -664,6 +726,18 @@ def make_narration(board, engine, voice, work):
 
 # ---------------------------------------------------------------- render
 
+# Top-level modules that `uv run` installs for the scenes module and the
+# helper. A scenes module that cannot import one of these is an environment
+# problem (exit 2); any other import error is a bug in scene code (exit 1).
+ENVIRONMENT_MODULES = {"manim", "manimpango", "numpy", "cairo", "video_helper", "doctor"}
+
+
+def scenes_import_error(exc):
+    error = scene_error(exc)
+    return (f"scenes module raised on import: {error['type']}: {error['message']}\n"
+            f"{error['traceback']}")
+
+
 def load_scenes_module(path, board):
     path = Path(path).resolve()
     if not path.is_file():
@@ -674,12 +748,13 @@ def load_scenes_module(path, board):
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except ImportError as exc:
-        raise RuntimeFailure(f"cannot import scenes module: {exc}")
+    except ModuleNotFoundError as exc:
+        if exc.name not in ENVIRONMENT_MODULES:
+            raise CheckFailed([scenes_import_error(exc)])
+        raise RuntimeFailure(f"cannot import scenes module: {exc}. {exc.name} is installed by "
+                             "`uv run`: run this command with `uv run make_video.py ...`")
     except Exception as exc:
-        error = scene_error(exc)
-        raise CheckFailed([f"scenes module raised on import: {error['type']}: "
-                           f"{error['message']}\n{error['traceback']}"])
+        raise CheckFailed([scenes_import_error(exc)])
     table = getattr(module, "SCENES", None) or {}
     functions, missing = {}, []
     for s in board["scenes"]:
@@ -707,7 +782,14 @@ def recover_renderer(renderer):
     writer = renderer.file_writer
     if len(writer.partial_movie_files) <= renderer.num_plays:
         return
-    if getattr(writer, "_current_encode_job", None) is not None:
+    # Private ManimCE 0.21 attribute; a missing one means another ManimCE
+    # version, where guessing could corrupt the video.
+    if not hasattr(writer, "_current_encode_job"):
+        raise RuntimeFailure(
+            "cannot recover from the failed scene: this ManimCE version has no "
+            "SceneFileWriter._current_encode_job (ManimCE 0.21 internals). Run with "
+            "`uv run make_video.py ...` so the pinned manim>=0.21,<0.22 is used.")
+    if writer._current_encode_job is not None:
         writer.close_partial_movie_stream()
         renderer.num_plays += 1
     else:
@@ -720,11 +802,14 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
     """Render all scenes in one ManimCE scene.
 
     Returns (video path, seconds, failures) where failures maps the id of each
-    scene whose code raised to scene_error(). A failed scene is cleared from
-    the screen and its time is filled with the screen as it was before it, so
-    later scenes still render and keep their timing. Scenes marked
-    "fallback": true are drawn by video_helper.fallback_scene() on a cleared
-    screen instead of their function; the screen is restored after them.
+    scene whose code raised to scene_error(). Each scene starts with
+    video_helper.clear_previous(): the previous scene's objects fade out,
+    except those it passed to ctx.carry(). A failed scene is cleared from the
+    screen and its time is filled with the objects carried into it, so later
+    scenes still render and keep their timing. Scenes marked "fallback": true
+    are drawn by video_helper.fallback_scene() on a cleared screen instead of
+    their function. After a failed or fallback scene, the objects carried
+    into it are carried on to the next scene.
 
     With preset["burn_captions"], each scene's narration is drawn as one
     scene-level caption (appears with the scene, leaves with it).
@@ -746,15 +831,20 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
             layout = video_helper.Layout(manim.config.frame_width, manim.config.frame_height,
                                          **preset["layout"])
             font = video_helper.pick_font(lang)
+            keep = []  # objects the previous scene passed to ctx.carry()
             for record, s in zip(timing, board["scenes"]):
                 ctx = video_helper.SceneContext(
                     scene=self, scene_id=s["id"], narration=s["narration"], lang=lang,
                     start=record["start"], duration=record["duration"],
                     speech_seconds=record["speech_seconds"], layout=layout, font=font,
                     fps=fps)
-                before = list(self.mobjects)
                 if s.get("fallback"):
+                    survivors = video_helper.carried_on_screen(self, keep)
                     self.clear()
+                else:
+                    video_helper.clear_previous(ctx, keep)
+                    survivors = list(self.mobjects)
+                before = list(self.mobjects)
                 burned = None
                 if burn:
                     burned = ctx.narration_caption(split_captions(s["narration"], lang,
@@ -773,9 +863,13 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
                 ctx.wait_until(record["end"])
                 if burned is not None:
                     self.remove(burned)
-                if s.get("fallback"):
+                if s.get("fallback") or s["id"] in failures:
+                    # Pass what was carried into this scene on to the next one.
                     self.clear()
-                    self.add(*before)
+                    self.add(*survivors)
+                    keep = survivors
+                else:
+                    keep = ctx.carried()
 
     settings = {"pixel_width": width, "pixel_height": height, "frame_rate": fps,
                 "frame_height": 8.0, "frame_width": 8.0 * width / height,
@@ -788,7 +882,7 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
             scene = Explainer()
             scene.render()
             video = Path(scene.renderer.file_writer.movie_file_path)
-    except CheckFailed:
+    except (CheckFailed, RuntimeFailure):
         raise
     except Exception as exc:
         raise RuntimeFailure(f"render failed: {type(exc).__name__}: {exc}")
@@ -1000,6 +1094,12 @@ def cmd_fetch_models(args):
                 except OSError as exc:
                     partial.unlink(missing_ok=True)
                     raise RuntimeFailure(f"download of {name} failed: {exc}")
+                got = partial.stat().st_size
+                if got != size:
+                    partial.unlink(missing_ok=True)
+                    raise RuntimeFailure(f"download of {name} is incomplete or changed: got "
+                                         f"{got} bytes, expected {size}; nothing was kept. "
+                                         "Run fetch-models again.")
                 partial.replace(path)
             files.append({"name": name, "set": set_name, "path": str(path),
                           "size_mb": size_mb(path.stat().st_size), "downloaded": downloaded})
@@ -1041,6 +1141,11 @@ def main(argv=None):
     except RuntimeFailure as exc:
         result, code = {"ok": False, "command": args.command, "errors": [str(exc)],
                         **exc.extra}, 2
+    except Exception as exc:  # keep the one-JSON-object contract for any bug
+        traceback.print_exc(file=sys.stderr)
+        message = f"unexpected {type(exc).__name__}: {exc}"
+        result, code = {"ok": False, "command": args.command, "errors": [message],
+                        "error": str(exc), "type": type(exc).__name__}, 2
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return code
 

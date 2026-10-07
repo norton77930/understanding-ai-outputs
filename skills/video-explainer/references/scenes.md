@@ -10,7 +10,7 @@ The scenes module is a Python file with one function per storyboard scene id. `m
 4. **Place with layout areas, not fixed coordinates.** Use `ctx.layout.title`, `.content`, `.caption`, `.grid()`, `.fit()` and `.keep_inside()`. Do not write `LEFT * 6` or `UP * 3.5`: the `short` preset frame is 4.5 units wide, not 14.2.
 5. **Time everything with `ctx.beats()`.** It fills exactly `ctx.duration`, the measured narration length. Do not call `ctx.scene.play()` or `ctx.scene.wait()` with your own run times.
 6. **Change a caption with `ctx.swap_caption(old, new)`.** A cross-fade at one position leaves a ghost of the old text.
-7. **Clean up.** Objects stay on screen across scenes until you remove them. Fade out what the next scene does not need. Keep shared objects in a module-level dict.
+7. **Each scene starts on a clean screen.** When a scene starts, the helper fades out everything the previous scene left on screen (0.3 s, taken from the new scene's time). To reuse objects in the next scene, call `ctx.carry(obj, ...)` in the scene that leaves them, and keep them in a module-level dict. A carried part keeps its whole on-screen group. `ctx.carry()` with no arguments keeps everything. Carry again in each scene that passes an object on.
 8. **Never draw in `layout.narration`.** The `short` preset burns the narration captions into that band. In other presets it has zero height.
 
 ## Helper API
@@ -24,7 +24,8 @@ The scenes module is a Python file with one function per storyboard scene id. `m
 | `ctx.caption(s, color=WHITE)` | Caption fitted into the caption area. Not added. |
 | `ctx.label(s, target, direction=DOWN, buff=0.2)` | Label next to `target`, kept inside the safe area. Not added. |
 | `ctx.swap_caption(old, new)` | Animation: fade `old` out, then fade `new` in. `old` can be `None`. |
-| `ctx.beats(steps)` | Plays `steps`, a list of `(animation, weight)`. The animation can be one animation, a list played together, or `None` (wait). Time is split by weight, then a 0.4 s still hold ends the scene. |
+| `ctx.beats(steps)` | Plays `steps`, a list of `(animation, weight)`. The animation can be one animation, a list played together, or `None` (wait). The scene time left is split by weight, then a 0.4 s still hold ends the scene. |
+| `ctx.carry(*mobjects)` | Keeps these objects on screen into the next scene. With no arguments, keeps everything on screen at the scene end. |
 | `ctx.layout.title`, `.content`, `.caption`, `.safe`, `.narration` | `Area` with `left`, `right`, `bottom`, `top`, `width`, `height`, `center`, `point(fx, fy)`. |
 | `ctx.layout.grid(rows, cols, area=None)` | `rows` x `cols` list of `Area` cells (default: content), top row first. |
 | `ctx.layout.fit(mob, area, buff=0)` | Scales `mob` down (never up) to fit `area` and centers it there. |
@@ -66,6 +67,7 @@ def s1(ctx):
     ctx.layout.fit(cells, ctx.layout.content)
     caption = ctx.caption("八個排好的數字")
     STATE.update(cells=cells, caption=caption)
+    ctx.carry(cells, caption)  # the title fades out when s2 starts
     ctx.beats([(FadeIn(title), 1), (Create(cells), 2), (FadeIn(caption), 1)])
 
 
@@ -114,6 +116,7 @@ def s1(ctx):
     caption = ctx.caption("Three stops")
     # The packet waits beside a node, never on top of its label.
     STATE.update(nodes=nodes, caption=caption, side=RIGHT if portrait else UP)
+    ctx.carry(nodes, arrows, caption)
     ctx.beats([
         (FadeIn(title), 1),
         ([FadeIn(n) for n in nodes], 1.5),
@@ -154,6 +157,7 @@ def s1(ctx):
     ball = Dot(axes.c2p(-2.5, 6.25), color=YELLOW, radius=0.12 * ctx.layout.text_scale)
     caption = ctx.caption("Start high on the slope")
     STATE.update(axes=axes, ball=ball, caption=caption)
+    ctx.carry(axes, curve, ball, caption)
     ctx.beats([(FadeIn(title), 1), ([Create(axes), Create(curve)], 2),
                ([FadeIn(ball), FadeIn(caption)], 1)])
 

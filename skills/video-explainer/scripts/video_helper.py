@@ -17,9 +17,11 @@ Rules the helper keeps for you:
   (a cross-fade at one position ghosts).
 - fallback_scene() draws a title and bullets from the narration for a scene
   the storyboard marks "fallback": true (make_video.py calls it).
-
-Objects stay on screen across scenes until you remove them. Keep shared
-objects in a module-level dict if a later scene needs them.
+- Each scene starts on a clean screen: clear_previous() fades out what the
+  previous scene left (make_video.py calls it). To keep objects for the next
+  scene, call ctx.carry(obj, ...) in the scene that made them (ctx.carry()
+  with no arguments keeps everything). Keep the carried objects in a
+  module-level dict so the next scene can use them.
 """
 
 import re
@@ -35,6 +37,10 @@ import doctor  # stdlib only; owns the Traditional Chinese font order
 # Still time at the end of every ctx.beats() call (seconds). make_video.py
 # samples preview frames 0.2 s before the scene end, inside this hold.
 HOLD_SECONDS = 0.4
+
+# Fade-out of the previous scene's objects at the start of a scene (seconds;
+# at most a quarter of the scene). The scene's beats share the rest.
+CLEAR_SECONDS = 0.3
 
 # Same order as the doctor's report (one source of truth: doctor.FONTS).
 ZH_FONTS = tuple(name for name, _, _ in doctor.FONTS)
@@ -169,6 +175,22 @@ class SceneContext:
         self.scene, self.id, self.narration, self.lang = scene, scene_id, narration, lang
         self.start, self.duration, self.speech_seconds = start, duration, speech_seconds
         self.layout, self.font, self.fps = layout, font, fps
+        self._carried, self._carry_all = [], False
+
+    def carry(self, *mobjects):
+        """Keep mobjects on screen into the next scene instead of fading them
+        out when it starts. A carried part keeps its whole on-screen group.
+        With no arguments, keep everything that is on screen at the scene end."""
+        if mobjects:
+            self._carried.extend(mobjects)
+        else:
+            self._carry_all = True
+
+    def carried(self):
+        """Objects to keep into the next scene (make_video.py reads this)."""
+        if self._carry_all:
+            return list(self.scene.mobjects)
+        return list(self._carried)
 
     def text(self, s, size=TEXT_SIZE, color=WHITE, **kwargs):
         """Text in the scene font, sized relative to the frame."""
@@ -209,8 +231,11 @@ class SceneContext:
         steps: list of (animation | list of animations | None, weight).
         None means wait. Time is split by weight (see allocate()).
         """
-        times = allocate(self.duration, [w for _, w in steps], hold)
-        target = self.start
+        # Start from now, not from ctx.start: the scene may begin with the
+        # fade-out of the previous scene's objects (clear_previous()).
+        begin = max(self.start, self.scene.renderer.time)
+        times = allocate(self.start + self.duration - begin, [w for _, w in steps], hold)
+        target = begin
         for (anims, _), run_time in zip(steps, times):
             target += run_time
             seconds = self._frames_until(target) / self.fps
@@ -232,6 +257,29 @@ class SceneContext:
 
     def _frames_until(self, t):
         return int(round((t - self.scene.renderer.time) * self.fps))
+
+
+def carried_on_screen(scene, keep):
+    """Top-level objects on screen that are in keep or contain a part of it."""
+    return [m for m in scene.mobjects
+            if any(k is m or k in m.get_family() for k in keep)]
+
+
+def clear_previous(ctx, keep):
+    """Fade out every object on screen except those in keep (objects the
+    previous scene passed to ctx.carry()). An on-screen group stays when it
+    or any part of it is in keep. Takes CLEAR_SECONDS, at most a quarter of
+    the scene."""
+    scene = ctx.scene
+    stay = carried_on_screen(scene, keep)
+    gone = [m for m in scene.mobjects if m not in stay]
+    if not gone:
+        return
+    frames = int(round(min(CLEAR_SECONDS, ctx.duration / 4) * ctx.fps))
+    if frames < 1:
+        scene.remove(*gone)
+        return
+    scene.play(*[FadeOut(m) for m in gone], run_time=frames / ctx.fps)
 
 
 # ---------------------------------------------------------------- fallback scene
@@ -278,7 +326,8 @@ def fallback_scene(ctx, title=None):
     """Draw the fallback for a scene that cannot be rendered: a title and 2-4
     bullets from ctx.narration, filling ctx.duration. Works in any aspect
     ratio. make_video.py uses it for storyboard scenes marked "fallback": true;
-    it clears the screen first and restores it after the scene."""
+    it clears the screen first and afterwards restores the objects carried
+    into the scene, so the next scene still gets them."""
     title_text, bullets = fallback_text(ctx.narration, title)
     zh = ctx.lang.lower().startswith("zh")
     portrait = ctx.layout.frame_width < ctx.layout.frame_height

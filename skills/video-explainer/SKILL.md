@@ -29,7 +29,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 
 ## Workflow
 
-1. **Doctor.** Run `python <skill folder>/scripts/doctor.py`. On exit 2, stop. Show the user the missing capabilities and their `hint` lines. Do not continue with a half-working setup. For Chinese narration with `font` null, show `font_hint` and stop.
+1. **Doctor.** Run `python <skill folder>/scripts/doctor.py --quick`. It installs nothing. On exit 2, stop. Show the user the missing capabilities and their `hint` lines. Do not continue with a half-working setup. For Chinese narration with `font` null, show `font_hint` and stop. The `manim` hint states the package install size. You show it to the user in step 4.
 2. **Storyboard.** Write `out/video-explainer/<slug>/storyboard.json` (fields in `references/storyboard-and-cli.md`):
    - 3 to 8 scenes, one idea per scene.
    - Pick `lang` from the user's language (`en`, `zh-TW`).
@@ -42,11 +42,14 @@ Rendering takes minutes. Never render before the user approves the storyboard.
    - `estimated_total_seconds` and `estimated_render_seconds` (preview and final)
    - the output preset and the narration engine and voice
    - every entry in `notices`: accent fallback, publishing risk, length outside the target
-   - each model in `downloads`, with its size in MB, and the first-run package install
+   - each model in `downloads`, with its size in MB. Say which ones are only for the offline fallback (`"fallback": true`).
+   - the first-run package install and its size, from the doctor's `manim` hint
 
    Then stop and wait. The user approves or asks for changes in plain words. Apply the changes to the storyboard, run `plan` again and show the result again. Do not render until the user approves.
-5. **Models.** Download only after the user agrees to the stated size: `python <skill folder>/scripts/make_video.py fetch-models <set> ...` with the sets from the `plan` notice (`kokoro-en`, `kokoro-zh`). Models go to the user cache folder, never the project.
-6. **Scenes.** Write `out/video-explainer/<slug>/scenes.py` with one function per scene id. Use the helper as `references/scenes.md` shows: ManimCE only, `Text` only, layout areas only, timing through `ctx.beats()`.
+5. **Install check and models.** Do these steps only after the user agrees to the stated sizes:
+   - Run `python <skill folder>/scripts/doctor.py` without `--quick`. This installs ManimCE into the uv cache and checks the network. If `manim` is not available, show its `hint` and stop. If `edge_tts_network` is not available for zh-TW, run `plan` again with `--offline` and show the new notices.
+   - Download the models: `python <skill folder>/scripts/make_video.py fetch-models <set> ...` with the sets from the `plan` notice (`kokoro-en`, `kokoro-zh`). Models go to the user cache folder, never the project.
+6. **Scenes.** Write `out/video-explainer/<slug>/scenes.py` with one function per scene id. Use the helper as `references/scenes.md` shows: ManimCE only, `Text` only, layout areas only, timing through `ctx.beats()`. Each scene starts on a clean screen. Call `ctx.carry(...)` for objects the next scene reuses.
 7. **Preview.** Run `uv run <skill folder>/scripts/make_video.py preview <storyboard> <scenes.py>`.
    - Exit 2: an environment problem. Show `errors` and any `missing_tools` hints, then stop.
    - Exit 1 with a scene `status` of `failed`: fix that function from its `error` and run `preview` again. After three failed fixes of one scene, set `"fallback": true` on it in the storyboard. The helper then draws a title and bullets from its narration. Add `"title"` to set the heading.
@@ -63,7 +66,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 
 ## Narration
 
-The narration is heard, not read. Apply these rules directly. Do not call another skill for them.
+The narration is heard, not read. Apply these rules directly. Do not call another skill for them. The STE rules are inspired by ASD-STE100. They are not official and are not endorsed by ASD.
 
 - English: relaxed STE. Use short sentences (20 words or fewer), active voice, one idea per sentence and one term per concept.
 - Other languages: apply the STE principles: short sentences, active voice, one idea per sentence, one term per concept.

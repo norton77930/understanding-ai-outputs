@@ -16,6 +16,7 @@ def s1(ctx):
     ctx.layout.fit(boxes, ctx.layout.content)
     caption = ctx.caption("Eight boxes, one target")
     STATE.update(title=title, boxes=boxes, caption=caption)
+    ctx.carry(boxes, caption)
     ctx.beats([(FadeIn(title), 1), (Create(boxes), 2), (FadeIn(caption), 1)])
 
 

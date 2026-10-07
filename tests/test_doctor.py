@@ -145,6 +145,41 @@ class CapabilityTests(DoctorCase):
         self.assertFalse(manim["available"])
         self.assertTrue(manim["skipped"])
 
+    def test_manim_probe_uses_the_pins_of_make_video(self):
+        if WINDOWS:
+            body = '@echo %*>>"%FAKE_TOOL_ARGS%"\r\n@exit /b 0\r\n'
+            (self.bin / "uv.cmd").write_text(body, encoding="utf-8")
+        else:
+            body = '#!/bin/sh\necho "$@" >> "$FAKE_TOOL_ARGS"\n'
+            (self.bin / "uv").write_text(body, encoding="utf-8")
+            (self.bin / "uv").chmod(0o755)
+        self.tools(("ffmpeg", "ffprobe"))
+        args_file = self.tmp / "uv-args.txt"
+        code, data = self.run_doctor(FAKE_TOOL_ARGS=str(args_file))
+        self.assertEqual(code, 0, data)
+        self.assertTrue(data["capabilities"]["manim"]["available"], data)
+        recorded = args_file.read_text(encoding="utf-8")
+        self.assertRegex(recorded, r"--python\W+>=\s*3\.12,\s*<\s*3\.13")
+        self.assertRegex(recorded, r"--with\W+manim\s*>=\s*0\.21,\s*<\s*0\.22")
+        self.assertIn("--no-project", recorded)
+
+    def test_quick_manim_hint_states_the_install_size(self):
+        self.tools()
+        _, data = self.run_doctor("--quick")
+        self.assertRegex(data["capabilities"]["manim"]["hint"], r"\d+ MB")
+
+    def test_runs_when_stdout_cannot_be_reconfigured(self):
+        code = ("import io, sys; sys.path.insert(0, sys.argv[1]); import doctor; "
+                "out = io.StringIO(); real = sys.stdout; sys.stdout = out; "
+                "doctor.main(['--quick']); real.write(out.getvalue())")
+        env = dict(os.environ, VIDEO_EXPLAINER_DOCTOR_PATH=str(self.bin),
+                   VIDEO_EXPLAINER_CACHE=str(self.cache),
+                   VIDEO_EXPLAINER_FONT_DIRS=str(self.fonts))
+        proc = subprocess.run([sys.executable, "-c", code, str(SCRIPT.parent)],
+                              capture_output=True, env=env, cwd=self.tmp)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+        self.assertIn("capabilities", json.loads(proc.stdout.decode("utf-8")))
+
     def test_quick_skips_network_probe(self):
         self.tools()
         _, data = self.run_doctor("--quick", VIDEO_EXPLAINER_OFFLINE="")
