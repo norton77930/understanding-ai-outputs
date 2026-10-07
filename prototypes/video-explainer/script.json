@@ -1,0 +1,47 @@
+{
+  "topic": "Binary search halves the search range each step",
+  "numbers": [2, 5, 8, 12, 16, 23, 29, 31, 37, 42, 48, 53, 61, 67, 74, 88],
+  "target": 37,
+  "scenes": [
+    {
+      "id": "s1",
+      "visual": "16 sorted boxes appear, target shown, middle box highlighted",
+      "en": "We want to find 37 among sixteen sorted numbers. First, check the one in the middle.",
+      "zh": "要在十六個由小到大排好的數字裡找 37。先看正中間的那一個。"
+    },
+    {
+      "id": "s2",
+      "visual": "31 too small: left half dims; then 53 too big, 42 too big: right parts dim",
+      "en": "31 is too small, so the entire left half is gone. Each check throws away half of what is left.",
+      "zh": "31 太小，所以左邊一半全部可以丟掉。每檢查一次，剩下的範圍就砍掉一半。"
+    },
+    {
+      "id": "s3",
+      "visual": "37 found (green); counter 16 -> 8 -> 4 -> 2 -> 1",
+      "en": "Sixteen, eight, four, two, one. Four checks find 37, instead of up to sixteen.",
+      "zh": "十六、八、四、二、一。只要檢查四次就找到 37，而不是最多檢查十六次。"
+    }
+  ],
+  "labels": {
+    "en": {
+      "title": "Binary search",
+      "target": "Target: 37",
+      "mid": "Check the middle",
+      "small": "31 < 37: drop the left half",
+      "big1": "53 > 37: drop the right part",
+      "big2": "42 > 37: drop it",
+      "found": "Found 37 in 4 checks",
+      "counter": "16 → 8 → 4 → 2 → 1"
+    },
+    "zh": {
+      "title": "二分搜尋",
+      "target": "目標：37",
+      "mid": "先看正中間",
+      "small": "31 < 37：丟掉左半邊",
+      "big1": "53 > 37：丟掉右邊",
+      "big2": "42 > 37：也丟掉",
+      "found": "檢查 4 次就找到 37",
+      "counter": "16 → 8 → 4 → 2 → 1"
+    }
+  }
+}
