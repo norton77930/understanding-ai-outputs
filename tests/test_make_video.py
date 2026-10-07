@@ -110,6 +110,41 @@ class PlanTests(unittest.TestCase):
         self.assertGreaterEqual(len(captions), 2)
         self.assertTrue(all(len(line) <= 42 for line in captions), captions)
 
+    def test_plan_reports_resolution_and_aspect_per_preset(self):
+        expected = {"explainer": (1280, 720, 30, "16:9", False),
+                    "youtube": (1920, 1080, 30, "16:9", False),
+                    "short": (1080, 1920, 30, "9:16", True)}
+        for name, (width, height, fps, aspect, burned) in expected.items():
+            board = load_storyboard()
+            board["preset"] = name
+            code, data = self.plan(board)
+            self.assertEqual(code, 0, data)
+            preset = data["preset"]
+            self.assertEqual((preset["name"], preset["width"], preset["height"], preset["fps"],
+                              preset["aspect"], preset["burn_captions"]),
+                             (name, width, height, fps, aspect, burned))
+            self.assertEqual(preset["resolution"], f"{width}x{height}")
+
+    def test_short_estimate_over_60_seconds_warns(self):
+        board = load_storyboard()
+        board["scenes"] = [{"id": "a", "narration": " ".join(["word"] * 200)}]
+        for name, warned in (("short", True), ("youtube", False)):
+            board["preset"] = name
+            code, data = self.plan(board)
+            self.assertEqual(code, 0, data)
+            self.assertGreater(data["estimated_total_seconds"], 60)
+            self.assertEqual(any("60 s" in n and "short" in n for n in data["notices"]), warned,
+                             data["notices"])
+
+    def test_short_estimate_within_60_seconds_does_not_warn(self):
+        board = load_storyboard()
+        board["preset"] = "short"
+        board["scenes"] = [{"id": "a", "narration": " ".join(["word"] * 84)}]
+        code, data = self.plan(board)
+        self.assertEqual(code, 0, data)
+        self.assertTrue(30 <= data["estimated_total_seconds"] <= 60, data)
+        self.assertFalse(any("60 s" in n for n in data["notices"]), data["notices"])
+
     def test_missing_scenes_is_invalid(self):
         board = load_storyboard()
         del board["scenes"]
@@ -187,12 +222,6 @@ class EngineSelectionTests(unittest.TestCase):
         return run([sys.executable, str(SCRIPT), "plan", str(path),
                     "--out", str(self.tmp / "out")], env=env)
 
-    def plan_with_preset(self, preset, **kwargs):
-        code, data = self.plan(preset=preset, **kwargs)
-        if code == 1 and any(f"unknown preset {preset!r}" in e for e in data["errors"]):
-            self.skipTest(f"preset {preset!r} is not defined yet (#19)")
-        return code, data
-
     def test_english_uses_kokoro(self):
         self.install_models(KOKORO_EN_FILES)
         code, data = self.plan("en")
@@ -234,14 +263,14 @@ class EngineSelectionTests(unittest.TestCase):
         self.assertEqual((data["engine"]["name"], data["engine"]["voice"]), ("kokoro", "zf_001"))
 
     def test_youtube_preset_with_edge_tts_adds_publishing_notice(self):
-        code, data = self.plan_with_preset("youtube", lang="zh-TW")
+        code, data = self.plan("zh-TW", preset="youtube")
         self.assertEqual(code, 0, data)
         self.assertEqual(data["engine"]["name"], "edge-tts")
         self.assertTrue(any("unofficial" in n and "Kokoro" in n for n in data["notices"]),
                         data["notices"])
 
     def test_short_preset_with_edge_tts_adds_publishing_notice(self):
-        code, data = self.plan_with_preset("short", lang="zh-TW")
+        code, data = self.plan("zh-TW", preset="short")
         self.assertEqual(code, 0, data)
         self.assertTrue(any("unofficial" in n and "Kokoro" in n for n in data["notices"]),
                         data["notices"])
@@ -364,6 +393,79 @@ class EndToEndTests(unittest.TestCase):
             self.assertAlmostEqual(srt_seconds(start), scene["start"], delta=0.002)
             self.assertAlmostEqual(srt_seconds(end), scene["end"], delta=0.002)
             self.assertAlmostEqual(scene["end"] - scene["start"], scene["duration"], delta=0.002)
+
+
+def frame_pixels(video, seconds, x0, y0, x1, y1):
+    """Gray pixel values (0-255) of a frame region given as frame fractions."""
+    crop = f"crop=iw*{x1 - x0}:ih*{y1 - y0}:iw*{x0}:ih*{y0},format=gray"
+    return list(subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", f"{seconds:.3f}", "-i", str(video), "-frames:v", "1",
+         "-vf", crop, "-f", "rawvideo", "pipe:1"],
+        capture_output=True, check=True).stdout)
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class PresetEndToEndTests(unittest.TestCase):
+    """The same fixture scenes module at youtube (1080p) and short (9:16)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        base = ["uv", "run", "--script", str(SCRIPT)]
+        cls.runs = {}
+        for preset, commands in (("youtube", ("final",)), ("short", ("preview", "final"))):
+            board = load_storyboard()
+            board["preset"] = preset
+            path = cls.tmp / f"{preset}.json"
+            path.write_text(json.dumps(board), encoding="utf-8")
+            for command in commands:
+                cls.runs[preset, command] = run(
+                    base + [command, str(path), str(SCENES), "--out", str(cls.tmp / preset)])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def result(self, preset, command):
+        code, data = self.runs[preset, command]
+        self.assertEqual(code, 0, data)
+        return data
+
+    def test_youtube_renders_1080p(self):
+        final = self.result("youtube", "final")
+        self.assertEqual(ffprobe_size(final["video"]), (1920, 1080))
+        self.assertLessEqual(abs(final["difference_seconds"]), 0.3, final)
+
+    def test_short_renders_vertical_1080x1920_with_srt(self):
+        final = self.result("short", "final")
+        self.assertEqual(ffprobe_size(final["video"]), (1080, 1920))
+        self.assertLessEqual(abs(final["difference_seconds"]), 0.3, final)
+        srt = Path(final["srt"]).read_text(encoding="utf-8")
+        self.assertEqual(len(re.findall(r"-->", srt)), 3)
+        self.assertIn("Here are eight boxes in a row.", srt)
+
+    def test_short_preview_is_vertical(self):
+        preview = self.result("short", "preview")
+        self.assertEqual((preview["preview"]["width"], preview["preview"]["height"]), (540, 960))
+
+    def test_short_burns_narration_clear_of_the_bottom_zone(self):
+        final = self.result("short", "final")
+        for scene in final["scenes"]:
+            at = scene["start"] + scene["duration"] / 2
+            # Narration band: right above the bottom app-control zone.
+            band = frame_pixels(final["video"], at, 0.05, 0.62, 0.95, 0.76)
+            self.assertGreater(sum(p > 200 for p in band) / len(band), 0.02, scene["id"])
+            # Bottom 15% (app controls) and the left and right 5% stay empty.
+            for region in ((0, 0.85, 1, 1), (0, 0, 0.05, 1), (0.95, 0, 1, 1)):
+                self.assertLess(max(frame_pixels(final["video"], at, *region)), 40,
+                                (scene["id"], region))
+
+    def test_youtube_has_no_burned_narration_band(self):
+        final = self.result("youtube", "final")
+        at = final["scenes"][0]["start"] + final["scenes"][0]["duration"] / 2
+        band = frame_pixels(final["video"], at, 0.05, 0.62, 0.95, 0.76)
+        self.assertLess(max(band), 40)
 
 
 STORYBOARD_ZH = FIXTURES / "storyboard_zh.json"

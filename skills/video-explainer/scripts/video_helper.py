@@ -9,7 +9,7 @@ each function with a SceneContext:
         ctx.beats([(FadeIn(title), 1), (Create(boxes), 2), (None, 1)])
 
 Rules the helper keeps for you:
-- Layout areas (safe, title, content, caption) are fractions of the frame, so
+- Layout areas (safe, title, content, caption, narration) are fractions of the frame, so
   the same code works at 16:9 and 9:16.
 - ctx.beats() fills exactly ctx.duration (the measured narration length) and
   ends with a short still hold, so frames sampled near the scene end are settled.
@@ -23,7 +23,7 @@ objects in a module-level dict if a later scene needs them.
 from dataclasses import dataclass
 
 import numpy as np
-from manim import DOWN, WHITE, FadeIn, FadeOut, Succession, Text
+from manim import DOWN, WHITE, FadeIn, FadeOut, Paragraph, Succession, Text
 
 # Still time at the end of every ctx.beats() call (seconds). make_video.py
 # samples preview frames 0.2 s before the scene end, inside this hold.
@@ -36,6 +36,7 @@ LATIN_FONTS = ("Segoe UI", "Helvetica Neue", "DejaVu Sans", "Noto Sans")
 TITLE_SIZE = 40
 TEXT_SIZE = 30
 CAPTION_SIZE = 28
+NARRATION_SIZE = 40  # burned-in narration captions (short preset): larger text
 
 
 def pick_font(lang):
@@ -88,13 +89,17 @@ class Area:
 class Layout:
     """Frame layout relative to frame size (aspect-ratio agnostic).
 
-    Areas, top to bottom inside the safe area: title, content, caption.
-    bottom_inset reserves an extra fraction of the frame height at the bottom
-    (for app controls on vertical video).
+    Areas, top to bottom inside the safe area: title, content, caption, and
+    narration. bottom_inset reserves an extra fraction of the frame height at
+    the bottom (for app controls on vertical video). narration is the band
+    for burned-in narration captions, right above that bottom zone; it is
+    empty (zero height) unless narration_fraction > 0, which is a fraction of
+    the safe height.
     """
 
     def __init__(self, frame_width, frame_height, margin=0.06, title_fraction=0.16,
-                 caption_fraction=0.16, gap_fraction=0.03, bottom_inset=0.0):
+                 caption_fraction=0.16, gap_fraction=0.03, bottom_inset=0.0,
+                 narration_fraction=0.0):
         self.frame_width, self.frame_height = frame_width, frame_height
         m = margin * min(frame_width, frame_height)
         self.safe = Area(-frame_width / 2 + m, frame_width / 2 - m,
@@ -102,9 +107,12 @@ class Layout:
                          frame_height / 2 - m)
         h, gap = self.safe.height, gap_fraction * self.safe.height
         title_bottom = self.safe.top - title_fraction * h
-        caption_top = self.safe.bottom + caption_fraction * h
+        narration_top = self.safe.bottom + narration_fraction * h
+        caption_bottom = narration_top + (gap if narration_fraction else 0.0)
+        caption_top = caption_bottom + caption_fraction * h
         self.title = Area(self.safe.left, self.safe.right, title_bottom, self.safe.top)
-        self.caption = Area(self.safe.left, self.safe.right, self.safe.bottom, caption_top)
+        self.narration = Area(self.safe.left, self.safe.right, self.safe.bottom, narration_top)
+        self.caption = Area(self.safe.left, self.safe.right, caption_bottom, caption_top)
         self.content = Area(self.safe.left, self.safe.right, caption_top + gap,
                             title_bottom - gap)
 
@@ -166,6 +174,15 @@ class SceneContext:
     def caption(self, s, color=WHITE):
         """Caption text fitted into the caption area (not yet added)."""
         return self.layout.fit(self.text(s, CAPTION_SIZE, color), self.layout.caption)
+
+    def narration_caption(self, lines, color=WHITE):
+        """Burned-in narration caption: lines of one scene's narration, in the
+        narration area, larger than scene captions (not yet added). Used by
+        make_video.py for presets that burn captions; scene code need not call it."""
+        paragraph = Paragraph(*lines, alignment="center", font=self.font, color=color,
+                              font_size=NARRATION_SIZE * self.layout.text_scale,
+                              line_spacing=0.6)
+        return self.layout.fit(paragraph, self.layout.narration)
 
     def label(self, s, target, direction=DOWN, buff=0.2, size=TEXT_SIZE * 0.8, color=WHITE):
         """Label next to target, kept inside the safe area (not yet added)."""

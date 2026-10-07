@@ -73,13 +73,31 @@ PAD_SECONDS = 0.35
 EN_WORDS_PER_SECOND = 168 / 60
 ZH_HANZI_PER_SECOND = 3.05
 
-# Output presets. Add a row to add a preset (#19: youtube, short).
+# Output presets. Add a row to add a preset.
 #   preview_short_side: pixel size of the shorter frame side in `preview`.
+#   burn_captions: draw the narration into the picture, one scene-level caption
+#       per scene (video.srt is written either way).
+#   layout: extra video_helper.Layout arguments. `short` keeps the bottom 16% of
+#       the frame clear for app controls and reserves a band above it for the
+#       burned captions.
+#   caption_chars: caption line width in characters (burned captions only).
 PRESETS = {
     "explainer": {
         "width": 1280, "height": 720, "fps": 30, "aspect": "16:9",
-        "target_seconds": [30, 120], "burn_captions": False,
+        "target_seconds": [30, 120], "burn_captions": False, "layout": {},
         "preview_short_side": 480, "preview_fps": 15,
+    },
+    "youtube": {
+        "width": 1920, "height": 1080, "fps": 30, "aspect": "16:9",
+        "target_seconds": [30, 120], "burn_captions": False, "layout": {},
+        "preview_short_side": 480, "preview_fps": 15,
+    },
+    "short": {
+        "width": 1080, "height": 1920, "fps": 30, "aspect": "9:16",
+        "target_seconds": [30, 60], "burn_captions": True,
+        "layout": {"bottom_inset": 0.16, "narration_fraction": 0.3, "caption_fraction": 0.1},
+        "caption_chars": {"zh": 11, "default": 24},
+        "preview_short_side": 540, "preview_fps": 15,
     },
 }
 DEFAULT_PRESET = "explainer"
@@ -137,9 +155,12 @@ def is_zh(lang):
     return lang.lower().startswith("zh")
 
 
-def split_captions(text, lang):
-    """Split narration into caption lines: sentences first, then wrap."""
-    limit = CAPTION_MAX_CHARS["zh" if is_zh(lang) else "default"]
+def split_captions(text, lang, max_chars=None):
+    """Split narration into caption lines: sentences first, then wrap.
+
+    max_chars overrides CAPTION_MAX_CHARS ({"zh": n, "default": n}).
+    """
+    limit = (max_chars or CAPTION_MAX_CHARS)["zh" if is_zh(lang) else "default"]
     lines = []
     for sentence in SENTENCE_RE.findall(text.strip()):
         sentence = sentence.strip()
@@ -473,6 +494,7 @@ def validate(board):
 def preset_info(name):
     p = PRESETS[name]
     return {"name": name, "width": p["width"], "height": p["height"], "fps": p["fps"],
+            "resolution": f"{p['width']}x{p['height']}",
             "aspect": p["aspect"], "target_seconds": p["target_seconds"],
             "burn_captions": p["burn_captions"]}
 
@@ -511,8 +533,12 @@ def cmd_plan(args):
                        "captions": split_captions(s["narration"], board["lang"])})
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
     low, high = preset["target_seconds"]
-    if not low <= total <= high:
-        notices.append(f"Estimated length {total} s is outside the {board['preset']} "
+    if total > high:
+        notices.append(f"Estimated length {total} s exceeds the {high} s limit for the "
+                       f"{board['preset']} preset (target {low}-{high} s); shorten the "
+                       "storyboard.")
+    elif total < low:
+        notices.append(f"Estimated length {total} s is below the {board['preset']} "
                        f"target of {low}-{high} s.")
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
@@ -634,8 +660,12 @@ def load_scenes_module(path, board):
     return functions
 
 
-def render(board, functions, timing, width, height, fps, media_dir, name):
-    """Render all scenes in one ManimCE scene. Returns (video path, seconds)."""
+def render(board, functions, timing, preset, width, height, fps, media_dir, name):
+    """Render all scenes in one ManimCE scene. Returns (video path, seconds).
+
+    With preset["burn_captions"], each scene's narration is drawn as one
+    scene-level caption (appears with the scene, leaves with it).
+    """
     try:
         import manim
         import video_helper
@@ -644,10 +674,13 @@ def render(board, functions, timing, width, height, fps, media_dir, name):
                              "`uv run make_video.py ...`")
 
     lang = board["lang"]
+    burn = preset["burn_captions"]
+    char_limit = preset.get("caption_chars")
 
     class Explainer(manim.Scene):
         def construct(self):
-            layout = video_helper.Layout(manim.config.frame_width, manim.config.frame_height)
+            layout = video_helper.Layout(manim.config.frame_width, manim.config.frame_height,
+                                         **preset["layout"])
             font = video_helper.pick_font(lang)
             for record, s in zip(timing, board["scenes"]):
                 ctx = video_helper.SceneContext(
@@ -655,8 +688,15 @@ def render(board, functions, timing, width, height, fps, media_dir, name):
                     start=record["start"], duration=record["duration"],
                     speech_seconds=record["speech_seconds"], layout=layout, font=font,
                     fps=fps)
+                burned = None
+                if burn:
+                    burned = ctx.narration_caption(split_captions(s["narration"], lang,
+                                                                  char_limit))
+                    self.add(burned)
                 functions[s["id"]](ctx)
                 ctx.wait_until(record["end"])
+                if burned is not None:
+                    self.remove(burned)
 
     settings = {"pixel_width": width, "pixel_height": height, "frame_rate": fps,
                 "frame_height": 8.0, "frame_width": 8.0 * width / height,
@@ -732,7 +772,8 @@ def cmd_preview(args):
     scale = preset["preview_short_side"] / min(preset["width"], preset["height"])
     width = int(round(preset["width"] * scale / 2)) * 2
     height = int(round(preset["height"] * scale / 2)) * 2
-    video, seconds = render(board, functions, timing, width, height, preset["preview_fps"],
+    video, seconds = render(board, functions, timing, preset, width, height,
+                            preset["preview_fps"],
                             work / "media_preview", "preview.mp4")
     frames = out / "frames"
     frames.mkdir(exist_ok=True)
@@ -777,8 +818,8 @@ def write_script(path, board):
 def cmd_final(args):
     board, selection, functions, out, work, timing, narration = prepare(args)
     preset = PRESETS[board["preset"]]
-    rendered, seconds = render(board, functions, timing, preset["width"], preset["height"],
-                               preset["fps"], work / "media_final", "final.mp4")
+    rendered, seconds = render(board, functions, timing, preset, preset["width"],
+                               preset["height"], preset["fps"], work / "media_final", "final.mp4")
     video = out / "video.mp4"
     run_tool(["ffmpeg", "-y", "-v", "error", "-i", str(rendered), "-i", str(narration),
               "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
