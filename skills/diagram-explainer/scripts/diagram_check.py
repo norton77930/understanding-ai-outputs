@@ -50,14 +50,17 @@ Rules (issue "rule" values):
                            that is not wrapped in double quotes
 
 Method (line based and APPROXIMATE, not a Mermaid parser): one statement per
-line (flowchart statements may also be split on ";"); full-line "%%"
-comments and front matter are skipped; "A & B --> C" counts every edge.
+line (flowchart statements may also be split on ";", including the statements
+after the header in "flowchart LR; A-->B"); full-line "%%" comments and front
+matter are skipped; "A & B --> C" counts every edge; edge text such as
+"A--text-->B" is measured as a label, not counted as a node.
 """
 
 import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass, field
 
 EXIT_PASS, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
 
@@ -82,8 +85,12 @@ _CLICK_RE = re.compile(r"^click\b")
 _ID = r"\w+(?:-\w+)*"
 
 # Flowchart edges.
+# Edge text between the link start and end: "A--text-->B", "A-- text -->B",
+# "A-.text.->B", "A==text==>B". The text must not look like the rest of a plain
+# link (">", "-", "=", ".") or like the "x"/"o" arrow head ("--x B").
 _EDGE_TEXT_RE = re.compile(
-    r"[<xo]?(?:--|==|-\.)\s+(?P<t>.+?)\s+(?:-->|---|==>|===|\.->|\.-)")
+    r"[<xo]?(?:--|==|-\.)(?![>\-=.])(?![xo](?:\s|$))\s*(?P<t>.+?)\s*"
+    r"(?:-->|---|==>|===|\.->|\.-)")
 _EDGE_RE = re.compile(r"[<xo]?(?:-{2,}[>xo-]?|={2,}[>xo=]?|-\.+-[>xo]?|~{3,})")
 _EDGE_PIPE_RE = re.compile(r"\s*\|(?P<t>[^|]*)\|")
 _NODE_ID_RE = re.compile(_ID)
@@ -98,6 +105,7 @@ _SHAPES = (
 )
 
 _SUBGRAPH_TITLE_RE = re.compile(rf"^({_ID})\s*\[(.*)\]\s*$")
+_FLOW_HEADER_REST_RE = re.compile(r"^[\s;]*(?:(?:TB|TD|BT|RL|LR)(?=[\s;]|$))?[\s;]*(.*)$")
 
 # Sequence diagrams.
 _SEQ_BLOCK_RE = re.compile(r"^(?:alt|opt|loop|par|rect|critical|break|box)(?:\s|$)")
@@ -171,6 +179,38 @@ class Report:
                        f"label {text!r} has {words} words and {chars} CJK characters "
                        f"(budget {self.budgets['max_label_words']} words, "
                        f"{self.budgets['max_label_chars']} characters)")
+
+
+class Blocks:
+    """Open blocks (subgraph, alt, state {). Reports an unbalanced-block issue
+    for a closer with no opener and, at finish(), for an opener with no closer."""
+
+    def __init__(self, report, closer, opener_name):
+        self.report = report
+        self.closer = closer
+        self.opener_name = opener_name
+        self._open = []
+
+    def push(self, line, name=None):
+        self._open.append((line, name or self.opener_name))
+
+    def pop(self, line):
+        if self._open:
+            self._open.pop()
+        else:
+            self.report.issue("unbalanced-block", line,
+                              f"{self.closer} without a matching {self.opener_name}")
+
+    def finish(self):
+        for line, name in self._open:
+            self.report.issue("unbalanced-block", line,
+                              f"{name} without a matching {self.closer}")
+
+
+@dataclass
+class FlowState:
+    nodes: set = field(default_factory=set)
+    edges: int = 0
 
 
 # --- shared line rules --------------------------------------------------------
@@ -295,7 +335,7 @@ def parse_flow_statement(stmt, line, state, report):
                     report.issue("unquoted-label", line,
                                  f"label {label.strip()!r} has {' '.join(bad)} outside "
                                  "double quotes; wrap the label in double quotes")
-            state["nodes"].add(node_id)
+            state.nodes.add(node_id)
             current.append(node_id)
             cls = _CLASS_SUFFIX_RE.match(stmt, pos)
             if cls:
@@ -326,13 +366,13 @@ def parse_flow_statement(stmt, line, state, report):
     if current:
         groups.append(current)
     for left, right in zip(groups, groups[1:]):
-        state["edges"] += len(left) * len(right)
+        state.edges += len(left) * len(right)
 
 
 def check_flowchart(items, report):
-    state = {"nodes": set(), "edges": 0}
+    state = FlowState()
     subgraph_ids = set()
-    stack = []
+    blocks = Blocks(report, "end", "subgraph")
     subgraphs = 0
     for line, stripped in items:
         if common_rules(stripped, line, report):
@@ -340,7 +380,7 @@ def check_flowchart(items, report):
         word = stripped.split(None, 1)[0]
         if word == "subgraph":
             subgraphs += 1
-            stack.append(line)
+            blocks.push(line)
             rest = stripped[len("subgraph"):].strip()
             m = _SUBGRAPH_TITLE_RE.match(rest)
             if m:
@@ -352,59 +392,47 @@ def check_flowchart(items, report):
             report.label(title.strip('"'), line)
             continue
         if word == "end":
-            if stack:
-                stack.pop()
-            else:
-                report.issue("unbalanced-block", line, "end without a matching subgraph")
+            blocks.pop(line)
             continue
         if word in ("direction", "class", "accTitle", "accDescr"):
             continue
         for stmt in split_statements(stripped):
             parse_flow_statement(stmt, line, state, report)
-    for line in stack:
-        report.issue("unbalanced-block", line, "subgraph without a matching end")
-    nodes = state["nodes"] - subgraph_ids
-    return {"nodes": len(nodes), "edges": state["edges"], "subgraphs": subgraphs}
+    blocks.finish()
+    nodes = state.nodes - subgraph_ids
+    return {"nodes": len(nodes), "edges": state.edges, "subgraphs": subgraphs}
 
 
 # --- sequence diagram -----------------------------------------------------------
 
 def check_sequence(items, report):
-    participants = {}
+    participants = set()
     messages = 0
-    stack = []
-
-    def add(pid):
-        participants.setdefault(pid, True)
+    blocks = Blocks(report, "end", "block")
 
     for line, stripped in items:
         if common_rules(stripped, line, report):
             continue
         if stripped == "end":
-            if stack:
-                stack.pop()
-            else:
-                report.issue("unbalanced-block", line, "end without a matching block")
+            blocks.pop(line)
             continue
         if _SEQ_BLOCK_RE.match(stripped):
-            stack.append((line, stripped.split(None, 1)[0]))
+            blocks.push(line, stripped.split(None, 1)[0])
             continue
         if _SEQ_SKIP_RE.match(stripped):
             continue
         m = _SEQ_PARTICIPANT_RE.match(stripped)
         if m:
-            add(m.group(1))
+            participants.add(m.group(1))
             if m.group(2):
                 report.label(m.group(2), line)
             continue
         m = _SEQ_MESSAGE_RE.match(stripped)
         if m:
-            add(m.group(1))
-            add(m.group(3))
+            participants.update((m.group(1), m.group(3)))
             messages += 1
             report.label(m.group(4), line)
-    for line, keyword in stack:
-        report.issue("unbalanced-block", line, f"{keyword} without a matching end")
+    blocks.finish()
     return {"participants": len(participants), "messages": messages}
 
 
@@ -413,7 +441,7 @@ def check_sequence(items, report):
 def check_state(items, report):
     states = set()
     transitions = 0
-    braces = []
+    braces = Blocks(report, "}", "state {")
     in_note = False
     for line, stripped in items:
         if in_note:
@@ -427,10 +455,7 @@ def check_state(items, report):
                 in_note = True
             continue
         if stripped == "}":
-            if braces:
-                braces.pop()
-            else:
-                report.issue("unbalanced-block", line, "} without a matching state {")
+            braces.pop(line)
             continue
         m = _STATE_TRANSITION_RE.match(stripped)
         if m:
@@ -447,21 +472,20 @@ def check_state(items, report):
             if m.group(1):
                 report.label(m.group(1), line)
             if m.group(3):
-                braces.append(line)
+                braces.push(line)
             continue
         m = _STATE_DESC_RE.match(stripped)
         if m:
             states.add(m.group(1))
             report.label(m.group(2), line)
-    for line in braces:
-        report.issue("unbalanced-block", line, "state { without a matching }")
+    braces.finish()
     return {"states": len(states), "transitions": transitions}
 
 
 # --- driver ---------------------------------------------------------------------
 
 def detect_type(items):
-    """Return (kind, index of the header item) for the first statement."""
+    """Return (kind, first word, index of the header item) for the first statement."""
     if not items:
         return None, None, -1
     for idx, (line, stripped) in enumerate(items):
@@ -501,6 +525,10 @@ def analyze(text, budgets):
         type_name = kind
         body = items[idx + 1:]
         if kind == "flowchart":
+            # "flowchart LR; A-->B": the statements after the header count too.
+            rest = _FLOW_HEADER_REST_RE.match(items[idx][1][len(first_word):]).group(1)
+            if rest:
+                body = [(items[idx][0], rest)] + body
             counts = check_flowchart(body, report)
             if counts["nodes"] > budgets["max_nodes"]:
                 report.issue("too-many-nodes", items[idx][0],

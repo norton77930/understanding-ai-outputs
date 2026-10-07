@@ -30,13 +30,13 @@ Turn a topic, or an answer from this conversation, into one to three small Merma
    - Use a short verb phrase for a step ("Check token"), a noun for a part ("Auth server").
    - Use one term for one concept in all labels and in the caption.
    - Use active voice. Give one action per label.
-   Quote every label that has punctuation or brackets: `A["Charge card (Stripe)"]`. Use only the syntax in `references/mermaid-syntax.md`.
+   In a flowchart, wrap a node label in double quotes when it has any of `( ) [ ] { } " | ; #`: `A["Charge card (Stripe)"]`. Other punctuation needs no quotes: `B{Token present?}`. Use only the syntax in `references/mermaid-syntax.md`.
 6. **Write the caption.** One sentence, STE principles, same language. Say what to look at, not what the diagram is: "Follow the token: the browser never sees the client secret.", not "This diagram shows OAuth."
 7. **Save.** Pick a short kebab-case slug from the topic. Write `out/diagram-explainer/<slug>/diagram.mmd` and `caption.md` under the current folder. For more than one diagram, write `diagram-1.mmd`, `diagram-2.mmd` and so on, and put one caption line per diagram in `caption.md`. Use another folder if the user names one. If git does not ignore `out/`, tell the user. Do not change `.gitignore` unasked.
-8. **Check.** Run `python <skill folder>/scripts/diagram_check.py <file>` (`python3` if `python` is missing) on each file. On exit 1, fix every entry in `issues` and run the check again. Do not show a diagram that fails the check. If Python is not available, check the budgets and `references/mermaid-syntax.md` by hand.
+8. **Check.** Run `python <skill folder>/scripts/diagram_check.py <file>` (`python3` if `python` is missing) on each file. On exit 1, fix every entry in `issues` and run the check again. Do not show a diagram that fails the check. The checker is required (Python standard library only). If Python is not available, say so and stop. Do not show an unchecked diagram.
 9. **Render and look.** If `uv` is available, run `uv run <skill folder>/scripts/render_diagram.py <file>`. It writes `diagram.svg` and `diagram.png` next to the source.
-   - Exit 0: open the PNG and do a layout check. Look for overlapping or clipped labels, labels too small to read, and crossing edges that hide the flow. Fix the source, check it again and render again. Do at most two fix rounds. Report a problem left after round two.
-   - Exit 1: Mermaid could not parse the diagram. Fix the source from `error`, then check and render again. This counts as a fix round.
+   - Exit 0: open the PNG and do a layout check. Look for overlapping or clipped labels, labels too small to read, and crossing edges that hide the flow. Fix the source, check it again and render again. Do at most two layout fix rounds. Report a problem left after round two.
+   - Exit 1: Mermaid could not parse the diagram, or the render timed out (`error` says "Render timed out"). Fix the source from `error`, then check and render again. This does not count as a layout fix round. If the render times out again, simplify the diagram, or deliver the checked source and say that rendering was skipped.
    - Exit 2: rendering is not available. Read `hint`. Never download a browser without asking the user first, and give the download size from `hint` when you ask. Without a browser or network, deliver the checked source and say that rendering was skipped and why.
    - On Windows, set `PYTHONUTF8=1`. To keep the uv cache off the system drive, set `UV_CACHE_DIR`.
 10. **Reply** with, for each diagram:
@@ -44,7 +44,7 @@ Turn a topic, or an answer from this conversation, into one to three small Merma
     - the caption line
     - the saved paths (source, caption, and SVG and PNG when rendered)
 
-    Add one line when rendering was skipped, with the reason. Add any layout problem left after two fix rounds.
+    Add one line when rendering was skipped, with the reason. Add any layout problem left after two layout fix rounds.
 
 ## Other tools
 

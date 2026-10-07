@@ -130,6 +130,54 @@ class FlowchartCountTests(unittest.TestCase):
         self.assertEqual(data["counts"]["nodes"], 2)
 
 
+class OneLineAndEdgeTextTests(unittest.TestCase):
+    def label_texts(self, data):
+        return [lab["text"] for lab in data["labels"]]
+
+    def test_one_line_flowchart_after_semicolon(self):
+        for header in ("flowchart LR; A-->B", "graph TD; A-->B", "flowchart; A-->B",
+                       "flowchart LR;A-->B;B-->C"):
+            with self.subTest(header=header):
+                code, data = run(header + "\n")
+                self.assertEqual(code, 0, data)
+                self.assertEqual(data["type"], "flowchart")
+                self.assertGreaterEqual(data["counts"]["nodes"], 2)
+                self.assertGreaterEqual(data["counts"]["edges"], 1)
+
+    def test_one_line_flowchart_counts_and_labels(self):
+        code, data = run("flowchart LR; A[Start] --> B[a b c d e f]\n")
+        self.assertEqual(code, 1)
+        self.assertEqual(data["counts"], {"nodes": 2, "edges": 1, "subgraphs": 0})
+        self.assertIn("label-too-long", rules(data))
+        self.assertEqual(data["issues"][0]["line"], 1)
+
+    def test_edge_text_without_spaces_is_a_label_not_a_node(self):
+        for edge in ("A--text-->B", "A-- text -->B", "A-.text.->B", "A==text==>B",
+                     "A -- text --> B", "A -. text .-> B", "A == text ==> B"):
+            with self.subTest(edge=edge):
+                code, data = run(f"flowchart LR\n    {edge}\n")
+                self.assertEqual(code, 0, data)
+                self.assertEqual(data["counts"]["nodes"], 2)
+                self.assertEqual(data["counts"]["edges"], 1)
+                self.assertEqual(self.label_texts(data), ["text"])
+
+    def test_long_edge_text_is_measured_as_a_label(self):
+        for edge in ("A--one two three four five six-->B", "A-.one two three four five six.->B",
+                     "A==one two three four five six==>B"):
+            with self.subTest(edge=edge):
+                code, data = run(f"flowchart LR\n    {edge}\n")
+                self.assertEqual(code, 1, data)
+                self.assertIn("label-too-long", rules(data))
+                self.assertEqual(data["counts"]["nodes"], 2)
+
+    def test_plain_edges_next_to_edge_text_keep_their_counts(self):
+        text = ("flowchart LR\n    A --> B --> C\n    C --- D\n    D --o E\n    E --x F\n"
+                "    F-.->G\n    G==>H\n    H--ok-->I\n")
+        code, data = run(text)
+        self.assertEqual(data["counts"]["nodes"], 9)
+        self.assertEqual(data["counts"]["edges"], 8)
+
+
 class SequenceCountTests(unittest.TestCase):
     def test_fixture_counts(self):
         code, data = run(file_arg=FIXTURES / "pass_sequence.mmd")
@@ -147,7 +195,42 @@ class SequenceCountTests(unittest.TestCase):
         self.assertEqual(data["counts"], {"participants": 2, "messages": 6})
 
 
+class SequenceBlockTests(unittest.TestCase):
+    def test_box_block_with_end_and_participants(self):
+        text = ("sequenceDiagram\n    box Aqua Our side\n        participant A\n"
+                "        participant B\n    end\n    A->>B: Hi\n")
+        code, data = run(text)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"participants": 2, "messages": 1})
+
+    def test_box_without_end_is_unbalanced(self):
+        code, data = run("sequenceDiagram\n    box Aqua Our side\n        participant A\n")
+        self.assertEqual(code, 1)
+        self.assertIn("unbalanced-block", rules(data))
+
+    def test_notes_are_not_messages_or_labels(self):
+        text = ("sequenceDiagram\n    A->>B: Hi\n    Note over A,B: one two three four five six seven\n"
+                "    Note right of B: B->>C: not a message\n    note left of A: x\n")
+        code, data = run(text)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"participants": 2, "messages": 1})
+        self.assertEqual([lab["text"] for lab in data["labels"]], ["Hi"])
+
+
 class StateCountTests(unittest.TestCase):
+    def test_multi_line_note_is_skipped(self):
+        text = ("stateDiagram-v2\n    [*] --> A\n    note right of A\n"
+                "        A --> Z : one two three four five six seven\n"
+                "        state Q {\n    end note\n    A --> B\n")
+        code, data = run(text)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"states": 2, "transitions": 2})
+
+    def test_one_line_note_does_not_swallow_following_lines(self):
+        code, data = run("stateDiagram-v2\n    note right of A : short\n    A --> B\n    B --> C\n")
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"states": 3, "transitions": 2})
+
     def test_fixture_counts_exclude_start_end(self):
         code, data = run(file_arg=FIXTURES / "pass_state.mmd")
         self.assertEqual(code, 0, data)
@@ -301,6 +384,24 @@ class FragileSyntaxTests(unittest.TestCase):
 
     def test_init_directive(self):
         self.assertFlags("%%{init: {'theme': 'dark'}}%%\nflowchart TD\n    A --> B\n", "init-directive")
+
+    def test_front_matter_config_and_theme(self):
+        for body in ("config:\n  theme: dark", "theme: dark", "config:\n  look: handDrawn"):
+            with self.subTest(body=body):
+                data = self.assertFlags(
+                    f"---\n{body}\n---\nflowchart TD\n    A --> B\n", "init-directive")
+                self.assertEqual(data["issues"][0]["line"], 2)
+
+    def test_front_matter_title_only_is_fine(self):
+        code, data = run("---\ntitle: Login\n---\nflowchart TD\n    A --> B\n")
+        self.assertEqual(code, 0, data)
+
+    def test_link_style_with_url(self):
+        self.assertFlags("flowchart TD\n    A --> B\n    linkStyle 0 stroke:url(#grad)\n", "style-url")
+
+    def test_link_style_without_url_is_fine(self):
+        code, data = run("flowchart TD\n    A --> B\n    linkStyle 0 stroke:#f00\n")
+        self.assertEqual(code, 0, data)
 
     def test_style_with_url(self):
         self.assertFlags("flowchart TD\n    A --> B\n    style A fill:url(#grad)\n", "style-url")

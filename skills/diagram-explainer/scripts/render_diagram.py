@@ -21,11 +21,12 @@ with a small white margin. Prints one JSON object on stdout (UTF-8):
 
 Exit code:
     0  rendered
-    1  Mermaid reported a parse or render error ("error" has its message);
-       no files are written
+    1  Mermaid reported a parse or render error ("error" has its message), or
+       the render did not finish within 30 seconds ("error" says "Render timed
+       out"); no files are written
     2  environment or input problem ("hint" says what to do): Playwright
-       missing, no browser, Mermaid not loadable (no network), unreadable
-       input file
+       missing, no browser, Mermaid or one of its lazy-loaded diagram chunks
+       not loadable (no network), unreadable input file, unexpected crash
 
 Mermaid is loaded from cdn.jsdelivr.net at the pinned version MERMAID_VERSION.
 The page is served from memory through Playwright request routing; nothing is
@@ -38,13 +39,21 @@ Browser policy: this script NEVER downloads a browser. It tries, in order:
     3. Microsoft Edge  (channel "msedge")
 If none launches, it exits 2 with the install command and download size.
 
-Testing hook: DIAGRAM_RENDER_SIMULATE=no-playwright or no-browser makes the
-script behave as if that part of the environment is missing.
+Testing hooks (environment variables):
+    DIAGRAM_RENDER_SIMULATE=no-playwright | no-browser   act as if that part of
+        the environment is missing
+    DIAGRAM_RENDER_SIMULATE=chunk-fetch-failure          act as if Mermaid
+        failed to fetch a lazy-loaded diagram chunk (exit 2)
+    DIAGRAM_RENDER_SIMULATE=crash                        raise an unexpected
+        exception (exit 2)
+    DIAGRAM_RENDER_TIMEOUT_MS=N                          render time limit in
+        milliseconds (default 30000)
 """
 
 import argparse
 import json
 import os
+import re
 import struct
 import sys
 from pathlib import Path
@@ -53,6 +62,19 @@ MERMAID_VERSION = "11.17.2"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.esm.min.mjs"
 PAGE_URL = "http://render-diagram.localhost/index.html"
 LOAD_TIMEOUT_MS = 30_000
+RENDER_TIMEOUT_MS = 30_000
+
+# Messages a browser gives when a lazy-loaded Mermaid chunk cannot be fetched
+# (Chromium, Firefox, WebKit, and raw network errors).
+_NETWORK_ERROR_RE = re.compile(
+    r"Failed to fetch dynamically imported module|"
+    r"error loading dynamically imported module|"
+    r"Importing a module script failed|"
+    r"NetworkError|net::ERR_|Failed to fetch|Load failed", re.IGNORECASE)
+SIMULATED_CHUNK_ERROR = (
+    "Failed to fetch dynamically imported module: "
+    f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/chunks/"
+    "mermaid.esm.min/flowDiagram.mjs (simulated)")
 
 HINT_NO_PLAYWRIGHT = (
     "Run this script with uv so that its Playwright dependency is installed: "
@@ -93,25 +115,36 @@ PAGE_HTML = f"""<!doctype html>
 </script></body></html>
 """
 
-RENDER_JS = """async (source) => {
-  const out = document.getElementById("out");
-  try {
-    const { svg } = await window.__mermaid.render("diagram", source);
-    out.innerHTML = svg;
-  } catch (e) {
-    document.querySelectorAll("[id^='ddiagram']").forEach((n) => n.remove());
-    return { error: String(e && e.message ? e.message : e) };
-  }
-  // Show the diagram at its natural size (Mermaid sets width 100%).
-  const el = out.querySelector("svg");
-  const vb = el.viewBox.baseVal;
-  if (vb && vb.width && vb.height) {
-    el.style.maxWidth = "none";
-    el.setAttribute("width", vb.width);
-    el.setAttribute("height", vb.height);
-  }
-  return { svg: out.innerHTML };
+# Starts the render and returns at once. The outcome lands in window.__rendered,
+# which Python waits for with a time limit.
+RENDER_JS = """(source) => {
+  window.__rendered = undefined;
+  const message = (e) => String(e && e.message ? e.message : e);
+  (async () => {
+    const out = document.getElementById("out");
+    try {
+      const { svg } = await window.__mermaid.render("diagram", source);
+      out.innerHTML = svg;
+    } catch (e) {
+      document.querySelectorAll("[id^='ddiagram']").forEach((n) => n.remove());
+      return { error: message(e) };
+    }
+    // Show the diagram at its natural size (Mermaid sets width 100%).
+    const el = out.querySelector("svg");
+    const vb = el.viewBox.baseVal;
+    if (vb && vb.width && vb.height) {
+      el.style.maxWidth = "none";
+      el.setAttribute("width", vb.width);
+      el.setAttribute("height", vb.height);
+    }
+    return { svg: out.innerHTML };
+  })().then(
+    (r) => { window.__rendered = r; },
+    (e) => { window.__rendered = { error: message(e) }; });
 }"""
+
+
+SIMULATED_WITHOUT_BROWSER = ("crash", "chunk-fetch-failure")
 
 
 def result(**fields):
@@ -125,6 +158,26 @@ def emit(data, code):
     sys.stdout.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     sys.stdout.flush()
     return code
+
+
+def render_timeout_ms():
+    """Render time limit; DIAGRAM_RENDER_TIMEOUT_MS overrides it (tests)."""
+    try:
+        value = int(os.environ.get("DIAGRAM_RENDER_TIMEOUT_MS", ""))
+    except ValueError:
+        return RENDER_TIMEOUT_MS
+    return value if value > 0 else RENDER_TIMEOUT_MS
+
+
+def render_failure(message, browser):
+    """Map a Mermaid render error to (exit code, result).
+
+    A failed fetch of a lazy-loaded chunk is an environment problem (exit 2).
+    Anything else is Mermaid's own parse or render error (exit 1)."""
+    if _NETWORK_ERROR_RE.search(message):
+        return 2, result(browser=browser, error=f"Mermaid could not load: {message}",
+                         hint=HINT_NO_NETWORK)
+    return 1, result(browser=browser, error=message)
 
 
 def png_size(data):
@@ -150,6 +203,7 @@ def launch_browser(playwright):
 
 def render(source, svg_path, png_path):
     """Return (exit code, result dict)."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -175,9 +229,18 @@ def render(source, svg_path, png_path):
                 return 2, result(browser=label, error=f"Mermaid did not load: {err}",
                                  hint=HINT_NO_NETWORK)
 
-            rendered = page.evaluate(RENDER_JS, source)
+            timeout_ms = render_timeout_ms()
+            page.evaluate(RENDER_JS, source)
+            try:
+                page.wait_for_function("window.__rendered !== undefined",
+                                       timeout=timeout_ms)
+            except PlaywrightTimeout:
+                return 1, result(browser=label,
+                                 error=f"Render timed out after {timeout_ms / 1000:g} "
+                                       "seconds; simplify the diagram or run again.")
+            rendered = page.evaluate("window.__rendered")
             if "error" in rendered:
-                return 1, result(browser=label, error=rendered["error"])
+                return render_failure(rendered["error"], label)
 
             png = page.locator("#out").screenshot(type="png")
             svg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +263,7 @@ def main(argv=None):
 
     src = Path(args.file).resolve()
     try:
-        source = src.read_text(encoding="utf-8")
+        source = src.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         return emit(result(error=f"Cannot read {args.file}: {exc}",
                            hint="Pass the path of a UTF-8 Mermaid file."), 2)
@@ -215,13 +278,19 @@ def main(argv=None):
     try:
         if simulate == "no-playwright":
             raise ImportError("simulated")
-        import playwright.sync_api  # noqa: F401
+        if simulate not in SIMULATED_WITHOUT_BROWSER:
+            import playwright.sync_api  # noqa: F401
     except ImportError:
         return emit(result(error="Python package playwright is not installed.",
                            hint=HINT_NO_PLAYWRIGHT), 2)
 
     try:
-        code, data = render(source, svg_path, png_path)
+        if simulate == "crash":
+            raise RuntimeError("simulated crash")
+        if simulate == "chunk-fetch-failure":
+            code, data = render_failure(SIMULATED_CHUNK_ERROR, None)
+        else:
+            code, data = render(source, svg_path, png_path)
     except Exception as exc:  # browser crash, driver error
         return emit(result(error=f"{type(exc).__name__}: {exc}",
                            hint="Run again. If it fails again, check the browser "

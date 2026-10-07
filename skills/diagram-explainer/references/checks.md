@@ -4,7 +4,7 @@ Both scripts print one JSON object on stdout in UTF-8. On Windows, set `PYTHONUT
 
 ## diagram_check.py
 
-Standard library only. Run it with `python` (`python3` if `python` is missing).
+Standard library only. Run it with `python` (`python3` if `python` is missing). The checker is required: without Python, do not show an unchecked diagram.
 
 ```
 python <skill folder>/scripts/diagram_check.py [FILE|-] [--max-nodes N] [--max-participants N]
@@ -52,8 +52,10 @@ Exit codes:
 | Code | Meaning | What to do |
 | --- | --- | --- |
 | 0 | Rendered | Open `png` and do the layout check |
-| 1 | Mermaid reported a parse or render error. No files are written | Fix the source from `error`, check it and render again |
-| 2 | Environment or input problem: no Playwright, no browser, no network, unreadable file | Read `hint`. Ask before any browser download. Otherwise deliver the source and say rendering was skipped |
+| 1 | Mermaid reported a parse or render error, or the render timed out (`error` says "Render timed out"). No files are written | Fix the source from `error`, check it and render again. After a second timeout, simplify the diagram or skip rendering |
+| 2 | Environment or input problem: no Playwright, no browser, no network (Mermaid, or one of its diagram chunks that loads on demand, did not load), unreadable file, unexpected crash | Read `hint`. Ask before any browser download. Otherwise deliver the source and say rendering was skipped |
+
+The render has a 30 second limit. The input file is read as UTF-8, and a BOM is ignored.
 
 JSON fields: `svg` and `png` (paths or `null`), `width` and `height` (PNG size in pixels or `null`), `mermaid_version`, `browser` (the browser used or `null`), `error` (message or `null`), and `hint` (only with exit 2).
 
@@ -64,6 +66,7 @@ JSON fields: `svg` and `png` (paths or `null`), `width` and `height` (PNG size i
 | `PYTHONUTF8=1` | both | UTF-8 console output on Windows |
 | `UV_CACHE_DIR` | `uv run` | Where uv keeps Python packages. Set it to keep the cache off the system drive |
 | `PLAYWRIGHT_BROWSERS_PATH` | `render_diagram.py` | Where Playwright's Chromium is installed and looked for. Keep it set the same way for install and render |
-| `DIAGRAM_RENDER_SIMULATE` | `render_diagram.py` | Tests only: `no-playwright` or `no-browser` acts as if that part is missing |
+| `DIAGRAM_RENDER_SIMULATE` | `render_diagram.py` | Tests only: `no-playwright` or `no-browser` acts as if that part is missing. `chunk-fetch-failure` acts as if a Mermaid chunk could not load (exit 2). `crash` raises an unexpected error (exit 2) |
+| `DIAGRAM_RENDER_TIMEOUT_MS` | `render_diagram.py` | Tests only: render time limit in milliseconds (default 30000) |
 
 The Chromium download is about 300 MB (about 700 MB on disk). Install it only after the user agrees, with the command in `hint`.

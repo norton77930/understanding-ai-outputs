@@ -42,10 +42,12 @@ def run_python(*args, env_extra=None):
     return proc.returncode, parse(proc), proc.stderr.decode("utf-8", "replace")
 
 
-def run_uv(*args):
+def run_uv(*args, env_extra=None):
     """Run the renderer with `uv run`, as the agent does."""
+    env = dict(os.environ)
+    env.update(env_extra or {})
     proc = subprocess.run(["uv", "run", "--quiet", str(SCRIPT), *map(str, args)],
-                          capture_output=True, timeout=300)
+                          capture_output=True, timeout=300, env=env)
     return proc.returncode, parse(proc), proc.stderr.decode("utf-8", "replace")
 
 
@@ -82,6 +84,27 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_no_files_written_when_environment_is_missing(self):
         run_python(self.src, env_extra={"DIAGRAM_RENDER_SIMULATE": "no-browser"})
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["d.mmd"])
+
+    def test_unexpected_exception_exits_2_with_one_json_object(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), str(self.src)], capture_output=True,
+            env={**os.environ, "DIAGRAM_RENDER_SIMULATE": "crash"})
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        data = json.loads(proc.stdout.decode("utf-8"))  # exactly one object
+        self.assertEqual(set(data), KEYS | {"hint"})
+        self.assertIn("RuntimeError", data["error"])
+        self.assertTrue(data["hint"])
+        self.assertIsNone(data["svg"])
+
+    def test_lazy_chunk_fetch_failure_exits_2_with_network_hint(self):
+        code, data, err = run_python(
+            self.src, env_extra={"DIAGRAM_RENDER_SIMULATE": "chunk-fetch-failure"})
+        self.assertEqual(code, 2, (data, err))
+        self.assertIn("Failed to fetch dynamically imported module", data["error"])
+        self.assertIn("network", data["hint"].lower())
+        self.assertIn("cdn.jsdelivr.net", data["hint"])
+        self.assertIsNone(data["svg"])
         self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["d.mmd"])
 
     def test_missing_input_file_exits_2(self):
@@ -130,6 +153,23 @@ class RenderTests(unittest.TestCase):
         code, data, err = run_uv(FIXTURES / "broken_flowchart.mmd", "--out", out)
         self.assertEqual(code, 1, (data, err))
         self.assertIn("Parse error", data["error"])
+        self.assertIsNone(data["svg"])
+        self.assertIsNone(data["png"])
+        self.assertFalse(out.exists() and any(out.iterdir()))
+
+    def test_utf8_bom_in_input_is_ignored(self):
+        src = self.tmp / "bom.mmd"
+        src.write_bytes(b"\xef\xbb\xbf" + (FIXTURES / "pass_state.mmd").read_bytes())
+        code, data, err = run_uv(src)
+        self.assertEqual(code, 0, (data, err))
+        self.assertTrue(Path(data["png"]).is_file())
+
+    def test_render_timeout_exits_1_and_writes_nothing(self):
+        out = self.tmp / "slow"
+        code, data, err = run_uv(FIXTURES / "pass_flowchart.mmd", "--out", out,
+                                 env_extra={"DIAGRAM_RENDER_TIMEOUT_MS": "1"})
+        self.assertEqual(code, 1, (data, err))
+        self.assertIn("render timed out", data["error"].lower())
         self.assertIsNone(data["svg"])
         self.assertIsNone(data["png"])
         self.assertFalse(out.exists() and any(out.iterdir()))
