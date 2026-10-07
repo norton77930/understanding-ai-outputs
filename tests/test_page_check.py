@@ -5,12 +5,15 @@ subprocess, the same way the agent and the evals run it. Per-rule cases mutate
 the passing fixture into a temporary file.
 """
 
+import importlib.util
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "skills" / "html-explainer" / "scripts" / "page_check.py"
@@ -173,6 +176,96 @@ class ExternalResourceTests(PageCase):
         self.assert_fails_only(code, data, "external-host")
         self.assertEqual(data["issues"][0]["line"], 17)
 
+    def test_host_aware_version_pins(self):
+        bad = [
+            "https://unpkg.com/foo/1.2.3/x.js",
+            "https://cdn.jsdelivr.net/npm/chart.js@4/dist/1.0.0/x.js",
+            "https://cdn.jsdelivr.net/npm/1.2.3/x.js",
+            "https://cdnjs.cloudflare.com/ajax/libs/d3@7.8.5/d3.min.js",
+            "https://cdnjs.cloudflare.com/d3/7.8.5/d3.min.js",
+            "https://unpkg.com/@scope/pkg/1.2.3/x.js",
+        ]
+        for url in bad:
+            with self.subTest(url):
+                code, data = self.mutate(
+                    "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js",
+                    url)
+                self.assert_fails_only(code, data, "unpinned-version")
+        good = [
+            "https://cdn.jsdelivr.net/npm/@scope/pkg@1.2.3/x.js",
+            "https://cdn.jsdelivr.net/npm/d3@7.8.5",
+            "https://unpkg.com/d3@7.8.5",
+        ]
+        for url in good:
+            with self.subTest(url):
+                code, data = self.mutate(
+                    "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js",
+                    url)
+                self.assertEqual(code, 0, data["issues"])
+
+    def test_malformed_url_is_bad_url(self):
+        code, data = self.mutate(
+            "<h1>", '<img src="http://[::1/x" alt="">\n<h1>')
+        self.assert_fails_only(code, data, "bad-url")
+        self.assertEqual(data["issues"][0]["line"], 17)
+
+    def test_inline_script_imports_and_fetches(self):
+        cases = {
+            "module import": ('<script type="module">\nimport * as d3 from '
+                              '"https://example.com/d3.js";\n</script>', "external-host", 18),
+            "side-effect import": ('<script type="module">import "https://unpkg.com/x/a.js";'
+                                   '</script>', "unpinned-version", 17),
+            "dynamic import": ("<script>\n\nconst m = await import('https://example.com/m.js');"
+                               "</script>", "external-host", 19),
+            "relative import": ('<script type="module">import {a} from "./a.js";</script>',
+                                "local-resource", 17),
+            "fetch": ('<script>fetch("https://example.com/data.json")</script>',
+                      "external-host", 17),
+            "new URL": ("<script>new URL('https://example.com/w.js')</script>",
+                        "external-host", 17),
+            "importmap": ('<script type="importmap">{"imports": {"d3": '
+                          '"https://example.com/d3.js"}}</script>', "external-host", 17),
+        }
+        for label, (tag, rule, line) in cases.items():
+            with self.subTest(label):
+                code, data = self.mutate("<h1>", tag + "\n<h1>")
+                self.assert_fails_only(code, data, rule)
+                self.assertEqual(data["issues"][0]["line"], line)
+
+    def test_inline_script_without_resources_passes(self):
+        code, data = self.mutate(
+            "<h1>", '<script type="module">import {a} from "d3"; fetch("data.json");'
+            ' const s = "import x from y";</script>\n<h1>')
+        self.assertEqual(code, 0, data["issues"])
+
+    def test_more_resource_attributes(self):
+        cases = [
+            '<img srcset="a.png 1x, https://cdn.jsdelivr.net/npm/x@1.0.0/b.png 2x" alt="">',
+            '<picture><source srcset="https://example.com/a.webp"></picture>',
+            '<video poster="https://example.com/p.png"></video>',
+            '<object data="https://example.com/x.pdf"></object>',
+            '<embed src="https://example.com/x.swf">',
+            '<link rel="preconnect" href="https://fonts.example.com">',
+            '<link rel="manifest" href="https://example.com/m.json">',
+            '<svg><image href="https://example.com/a.png"/></svg>',
+            '<svg><use xlink:href="https://example.com/s.svg#i"/></svg>',
+        ]
+        for tag in cases:
+            with self.subTest(tag):
+                code, data = self.mutate("<h1>", tag + "\n<h1>")
+                self.assertEqual(code, 1, data)
+                self.assertEqual(len(data["issues"]), 1, data["issues"])
+                self.assertIn(data["issues"][0]["rule"],
+                              ("external-host", "local-resource"))
+
+    def test_srcset_with_allowed_urls_and_data_passes(self):
+        code, data = self.mutate(
+            "<h1>", '<img srcset="data:image/gif;base64,R0lG,AA 1x, '
+            'https://unpkg.com/x@1.0.0/b.png 2x" alt="">'
+            '<svg><use href="#icon"/></svg>'
+            '<link rel="preconnect" href="https://cdn.jsdelivr.net">\n<h1>')
+        self.assertEqual(code, 0, data["issues"])
+
     def test_external_stat_lists_every_external_url(self):
         code, data = self.mutate(
             "<h1>", '<img src="https://example.com/a.png" alt="">\n<h1>')
@@ -275,6 +368,16 @@ class HandlerTests(PageCase):
             "<h1>", '<p title="onclick=1" data-one="x">onclick="y"</p>\n<h1>')
         self.assertEqual(code, 0, data["issues"])
 
+    def test_on_words_that_are_not_handlers(self):
+        # Rule: "on" + 3 or more letters is a handler (the shortest real one is
+        # oncut), except a short allow-list of plain words.
+        code, data = self.mutate(
+            "<h1>", '<p one="1" only="1" on="1" onset="1" online="1">x</p>\n<h1>')
+        self.assertEqual(code, 0, data["issues"])
+        code, data = self.mutate(
+            "<h1>", '<p oncut="a()" onend="b()" onpointerdown="c()">x</p>\n<h1>')
+        self.assertEqual(self.rules(data), ["inline-handler"] * 3)
+
 
 class SizeTests(PageCase):
     def test_too_large_with_default_budget(self):
@@ -333,6 +436,23 @@ class UsageErrorTests(PageCase):
     def test_no_file_argument_exits_two(self):
         proc = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True)
         self.assertEqual(proc.returncode, 2)
+
+    def test_unexpected_error_prints_one_json_and_exits_two(self):
+        # No input reaches this path through the CLI, so force it in-process.
+        spec = importlib.util.spec_from_file_location("page_check", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        with mock.patch.object(sys, "dont_write_bytecode", True):  # keep the skill folder clean
+            spec.loader.exec_module(mod)
+        buf = io.BytesIO()
+        fake_out = io.TextIOWrapper(buf, encoding="utf-8")
+        with mock.patch.object(mod, "analyze", side_effect=RuntimeError("boom")), \
+                mock.patch.object(sys, "stdout", fake_out):
+            code = mod.main([str(PASS_FIXTURE)])
+            fake_out.flush()
+        self.assertEqual(code, 2)
+        data = json.loads(buf.getvalue().decode("utf-8"))
+        self.assertFalse(data["pass"])
+        self.assertIn("boom", data["error"])
 
 
 if __name__ == "__main__":

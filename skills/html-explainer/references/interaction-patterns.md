@@ -15,7 +15,7 @@ Rules for every pattern:
 - The first state on load must already be meaningful (step 1, a default slider value, all layers on).
 - Show the current state in words as well as in the picture (`Step 2 of 4`, the slider value).
 - Use native controls. Do not build buttons from `<div>` elements.
-- `render_check.py` clicks the first visible `<button>`. Make sure that button is enabled on load and changes the page. For example, put "Next" before "Back".
+- `render_check.py` clicks the first visible, enabled `<button>`. Make sure that this button changes the page. For example, put "Next" before "Back".
 
 Each example below is a complete page that passes `page_check.py`. They use a short version of the skeleton in `design-baseline.md`.
 

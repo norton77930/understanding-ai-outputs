@@ -5,9 +5,9 @@ Every page follows these rules. `scripts/page_check.py` enforces the file rules.
 ## File rules (checked by `page_check.py`)
 
 - One file: `index.html`. Put all CSS in one `<style>` block and all JS in one `<script>` block. No build step, no server.
-- No external resources by default. If a library is necessary, load it only from `cdnjs.cloudflare.com`, `cdn.jsdelivr.net/npm/` or `unpkg.com`, with an exact version in the URL (`@1.2.3` or `/1.2.3/`). Tell the user that the page then needs a network connection.
+- No external resources by default. If a library is necessary, load it only from `cdnjs.cloudflare.com`, `cdn.jsdelivr.net/npm/` or `unpkg.com`, with an exact version in the URL: `cdn.jsdelivr.net/npm/<name>@1.2.3/...`, `unpkg.com/<name>@1.2.3/...` or `cdnjs.cloudflare.com/ajax/libs/<name>/1.2.3/...`. This also applies to `import` and `fetch` URLs in the script. Tell the user that the page then needs a network connection.
 - No local resources: no relative paths, no `file:` URLs. Inline images as SVG or `data:` URLs.
-- `<html lang="...">` matches the page language: `en`, `zh-Hant-TW` (or `zh-TW`), and so on.
+- `<html lang="...">` matches the page language, for example `en`. For zh-TW, see "Text" in `SKILL.md`.
 - A non-empty `<title>`.
 - `<meta name="viewport" content="width=device-width, initial-scale=1">`.
 - Colors as CSS custom properties on `:root`, with a `@media (prefers-color-scheme: dark)` override in the inline `<style>`.
@@ -84,5 +84,5 @@ This skeleton passes `page_check.py`. Replace the title, the text and the contro
 ## Language
 
 - Write the page in the conversation's language. Set `lang` to match.
-- For zh-TW, use `lang="zh-Hant-TW"` and Taiwan wording (程式, 資料, 伺服器). Add `"Noto Sans TC", "Microsoft JhengHei", "PingFang TC"` before `sans-serif` in the font stack.
+- For zh-TW (the `lang` value and the wording are in "Text" in `SKILL.md`), add `"Noto Sans TC", "Microsoft JhengHei", "PingFang TC"` before `sans-serif` in the font stack.
 - Format numbers with `toLocaleString(document.documentElement.lang)`.

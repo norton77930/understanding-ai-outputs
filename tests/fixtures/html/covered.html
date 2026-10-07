@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Covered button</title>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); }
+#cover { position: fixed; inset: 0; background: transparent; }
+</style>
+</head>
+<body>
+<h1>Covered button</h1>
+<button id="go" type="button">Go</button>
+<div id="cover"></div>
+</body>
+</html>
