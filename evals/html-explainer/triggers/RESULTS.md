@@ -45,3 +45,9 @@ Installed skill-creator files were not modified. A scratch copy outside the repo
 `--timeout 60` (default 30) was passed so that a slow first response is not counted as a miss. `run_loop.py` was not used.
 
 The eval checks only that the skill fires. It does not check the page that the workflow makes. That is checked in a fresh session (issue #33 acceptance) and by the eval topics (issue #34).
+
+## Fresh-session check (issue #33 acceptance)
+
+2026-10-08, branch `feat/html-explainer` exported to a scratch folder and loaded with `--plugin-dir`, run from an empty folder with `--setting-sources project,local --strict-mcp-config --no-session-persistence`. Request: "Make an interactive web page that explains how binary search halves the search range."
+
+Result: pass. The skill loaded and wrote one `index.html` (step-through with a target menu, range bars and two reveal questions), ran the static and render checks, fixed one layout issue after looking at the screenshots, and replied with the path and how to use the page. Re-running page_check on the saved file: pass, 0 issues, 9.2 KB, 6 controls. The 390 px dark screenshot shows no overflow or clipping. 19 turns, $0.49.
