@@ -45,3 +45,9 @@ Installed skill-creator files were not modified. A scratch copy outside the repo
 `--timeout 60` (default 30) was passed so that a slow first response is not counted as a miss. `run_loop.py` was not used.
 
 The eval checks only that the skill fires. It does not check the workflow after the skill loads (checked Mermaid block, caption, saved files). That is checked in a fresh session (issue #27 acceptance).
+
+## Fresh-session check (issue #27 acceptance)
+
+2026-10-08, branch `feat/diagram-explainer` exported to a scratch folder and loaded with `--plugin-dir`, run from an empty folder with `--setting-sources project,local --strict-mcp-config --no-session-persistence`. Request: "Draw a diagram that explains how a DNS lookup finds the IP address for a website."
+
+Result: pass. The skill loaded, picked `sequenceDiagram`, ran the checker, rendered and checked the PNG, and replied with the Mermaid block, a one-line caption and the saved paths (`diagram.mmd`, `caption.md`, `diagram.svg`, `diagram.png`). Re-running the checker on the saved file: pass, 5 participants, 9 messages. 12 turns, $0.23.
