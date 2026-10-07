@@ -26,6 +26,9 @@ VARIANTS = {
               license="Unofficial use of Edge Read-Aloud endpoint; no SLA, ToS grey area; needs internet"),
     "D": dict(engine="Windows SAPI (System.Speech)", voice="Microsoft Hanhan Desktop", lang="zh", font=ZH_FONT,
               license="Ships with Windows; offline; legacy concatenative/HMM quality"),
+    "E": dict(engine="BreezyVoice-300M (CosyVoice, CPU torch 2.3.1, Py3.10 subprocess)", voice="BreezyVoice zero-shot, data/example.wav",
+              lang="zh", font=ZH_FONT,
+              license="BreezyVoice code + weights Apache-2.0 (MediaTek Research); offline; Taiwan Mandarin + g2pW bopomofo"),
 }
 
 
@@ -76,18 +79,40 @@ def sapi(text, path):
     tf.unlink()
 
 
-TTS = {"A": (kokoro_en, "wav"), "B": (kokoro_zh, "wav"), "C": (edge, "mp3"), "D": (sapi, "wav")}
+BREEZY_INFO = {}
+
+
+def breezy(texts, paths):
+    """Batch engine: one subprocess in the separate Py3.10 venv (breezy/) loads the model once for all scenes."""
+    jobs = Path(str(paths[0]) + ".jobs.json")
+    jobs.write_text(json.dumps({"jobs": [{"text": t, "out": str(p)} for t, p in zip(texts, paths)]}, ensure_ascii=False),
+                    encoding="utf-8")
+    env = dict(os.environ, PYTHONUTF8="1", UV_CACHE_DIR=os.environ.get("UV_CACHE_DIR", "D:/uv-cache"),
+               UV_PYTHON_INSTALL_DIR="D:/uv-python", UV_PYTHON_DOWNLOADS="never",
+               HF_HOME=os.environ.get("HF_HOME", "D:/hf-cache"))
+    env.pop("VIRTUAL_ENV", None)
+    r = subprocess.run(["uv", "run", "--directory", str(ROOT / "breezy"), "python", "tts.py", str(jobs)],
+                       env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    (paths[0].parent / "breezy.log").write_text(r.stdout + "\n--- stderr ---\n" + r.stderr, encoding="utf-8")
+    if r.returncode:
+        raise RuntimeError(f"breezy failed (see {paths[0].parent / 'breezy.log'}):\n{r.stderr[-3000:]}")
+    BREEZY_INFO.update(json.loads(next(l for l in r.stdout.splitlines() if l.startswith("RESULT "))[7:]))
+
+
+TTS = {"A": (kokoro_en, "wav"), "B": (kokoro_zh, "wav"), "C": (edge, "mp3"), "D": (sapi, "wav"), "E": (breezy, "wav")}
+BATCH = {"E"}
 
 
 def do_tts(v, d):
     fn, ext = TTS[v]
     text_key = VARIANTS[v]["lang"]
     t0 = time.perf_counter()
-    raws = []
-    for i, s in enumerate(SCRIPT["scenes"]):
-        p = d / f"raw_s{i + 1}.{ext}"
-        fn(s[text_key], p)
-        raws.append(p)
+    raws = [d / f"raw_s{i + 1}.{ext}" for i in range(len(SCRIPT["scenes"]))]
+    if v in BATCH:
+        fn([s[text_key] for s in SCRIPT["scenes"]], raws)
+    else:
+        for s, p in zip(SCRIPT["scenes"], raws):
+            fn(s[text_key], p)
     tts_s = time.perf_counter() - t0
     # normalize to 48k mono wav + pad, then measure (audio-first: these durations drive the animation)
     durs, speech = [], []
@@ -156,9 +181,9 @@ def html(m):
 <tr><th>Render</th><td>preview {r['render_ql_s']:.1f} s, final {r['render_qm_s']:.1f} s</td></tr>
 <tr><th>File size</th><td>{r['mp4_kb']} KB</td></tr></table></div>""")
     (OUT / "compare.html").write_text(f"""<!doctype html><meta charset=utf-8><title>Narration voice comparison (prototype)</title>
-<style>body{{font-family:sans-serif;background:#111;color:#eee}}.g{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}
+<style>body{{font-family:sans-serif;background:#111;color:#eee}}.g{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}
 video{{width:100%}}table{{font-size:13px}}th{{text-align:left;padding-right:8px;color:#aaa}}h2{{font-size:16px}}</style>
-<h1>Binary search explainer: 4 narration voices (PROTOTYPE)</h1><div class=g>{''.join(cards)}</div>""", encoding="utf-8")
+<h1>Binary search explainer: {len(m)} narration voices (PROTOTYPE)</h1><div class=g>{''.join(cards)}</div>""", encoding="utf-8")
 
 
 def main():
@@ -188,6 +213,9 @@ def main():
                           speech_s=[round(x, 3) for x in speech], total_s=round(sum(durs), 3), rate=rate,
                           render_ql_s=round(ql_s, 1), render_qm_s=round(qm_s, 1),
                           video_s=round(ffdur(qm_vid), 3), mp4_s=round(ffdur(o), 3), mp4_kb=o.stat().st_size // 1024)
+        if v == "E" and BREEZY_INFO:
+            metrics[v]["breezy"] = dict(BREEZY_INFO, rtf_total=round(sum(j["wall_s"] for j in BREEZY_INFO["jobs"])
+                                                                     / sum(j["audio_s"] for j in BREEZY_INFO["jobs"]), 2))
         mpath.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"[{v}] -> {o}", flush=True)
     html({k: metrics[k] for k in sorted(metrics)})

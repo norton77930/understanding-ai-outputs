@@ -17,24 +17,39 @@ env UV_CACHE_DIR=D:/uv-cache UV_PYTHON_DOWNLOADS=never uv sync --python C:/Users
 env UV_CACHE_DIR=D:/uv-cache PYTHONUTF8=1 uv run python run.py
 ```
 
-Outputs: `out/{A,B,C,D}.mp4`, `out/{A,B,C,D}.srt`, `out/compare.html`, `out/metrics.json`, preview frames in `out/frames/<variant>/`.
+Outputs: `out/{A..E}.mp4`, `out/{A..E}.srt`, `out/compare.html`, `out/metrics.json`, preview frames in `out/frames/<variant>/`.
 
 Pipeline (`run.py`): TTS per scene → append 0.35 s silence pad → measure each scene with ffprobe → write durations to `out/work/<v>/scene_config.json` → `scene.py` fits each scene's animations and waits to exactly that duration (weighted run_times, with a drift-correcting wait) → render at `-ql`, extract one frame per scene → render at `-qm` (720p30) → mux with ffmpeg (copy video, AAC audio) → SRT built from the scene text and durations.
 
 ## Results
 
-| | A | B | C | D |
-|---|---|---|---|---|
-| Engine | kokoro-onnx 0.6.1, Kokoro v1.0 | kokoro-onnx 0.6.1, Kokoro v1.1-zh + misaki-fork[zh] G2P | edge-tts 7.2.8 (online) | Windows SAPI System.Speech |
-| Voice | af_heart (en-US) | zf_001 (Mandarin) | zh-TW-HsiaoChenNeural | Microsoft Hanhan Desktop (zh-TW) |
-| License | weights Apache-2.0, lib MIT, offline | weights Apache-2.0, offline | unofficial Edge Read-Aloud endpoint, ToS grey area, needs network | ships with Windows, offline |
-| Narration (3 scenes incl. pads) | 18.9 s | 19.8 s | 26.4 s | 27.6 s |
-| Speech rate | 168 wpm | 4.2 hanzi/s | 3.1 hanzi/s | 3.0 hanzi/s |
-| TTS wall time (3 scenes, incl. model load) | 11.7 / 17.3 s | 14.7 / 25.0 s | 5.6 / 5.5 s | 14.9 / 20.8 s |
-| Preview render `-ql` | 43 / 71 s | 45 / 89 s | 52 / 60 s | 43 / 88 s |
-| Final render 720p30 `-qm` | 39 / 104 s | 93 / 57 s | 80 / 95 s | 54 / 55 s |
-| Final mp4 | 19.0 s, 709 KB | 19.9 s, 720 KB | 26.6 s, 837 KB | 27.8 s, 884 KB |
-| Whisper-small round-trip | verbatim | 3 homophone slips (有/由, 沒/每) | 3 slips (有/由, 牌/排, 沒/每) | 2 slips (有/由, 牌/排) |
+| | A | B | C | D | E |
+|---|---|---|---|---|---|
+| Engine | kokoro-onnx 0.6.1, Kokoro v1.0 | kokoro-onnx 0.6.1, Kokoro v1.1-zh + misaki-fork[zh] G2P | edge-tts 7.2.8 (online) | Windows SAPI System.Speech | BreezyVoice-300M (CosyVoice), CPU torch 2.3.1, separate Py3.10 venv |
+| Voice | af_heart (en-US) | zf_001 (Mandarin) | zh-TW-HsiaoChenNeural | Microsoft Hanhan Desktop (zh-TW) | zero-shot clone of the repo's `data/example.wav` (README transcription) |
+| License | weights Apache-2.0, lib MIT, offline | weights Apache-2.0, offline | unofficial Edge Read-Aloud endpoint, ToS grey area, needs network | ships with Windows, offline | code + weights Apache-2.0, offline after install |
+| Narration (3 scenes incl. pads) | 18.9 s | 19.8 s | 26.4 s | 27.6 s | 29.5 s |
+| Speech rate | 168 wpm | 4.2 hanzi/s | 3.1 hanzi/s | 3.0 hanzi/s | 2.8 hanzi/s |
+| TTS wall time (3 scenes, incl. model load) | 11.7 / 17.3 s | 14.7 / 25.0 s | 5.6 / 5.5 s | 14.9 / 20.8 s | 1031 s (load 85 s; scenes 267 / 294 / 381 s; RTF 30–36, 33 overall) |
+| Preview render `-ql` | 43 / 71 s | 45 / 89 s | 52 / 60 s | 43 / 88 s | 41 s |
+| Final render 720p30 `-qm` | 39 / 104 s | 93 / 57 s | 80 / 95 s | 54 / 55 s | 33 s |
+| Final mp4 | 19.0 s, 709 KB | 19.9 s, 720 KB | 26.6 s, 837 KB | 27.8 s, 884 KB | 29.6 s, 969 KB |
+| Whisper-small round-trip | verbatim | 3 homophone slips (有/由, 沒/每) | 3 slips (有/由, 牌/排, 沒/每) | 2 slips (有/由, 牌/排) | 3 slips (還/排, 沒/每, 刊/砍) |
+
+E has a single run (2026-10-07). F (a Windows 11 natural zh-TW voice) was not run. See "E and F" below.
+
+## E and F (zh-TW additions)
+
+- **E BreezyVoice** runs natively on Windows on CPU: `run.py E` calls `breezy/tts.py` with `uv run --directory breezy` in its own Python 3.10 venv, loads the model once, and synthesizes all scenes. Code is cloned into `vendor/BreezyVoice` (git-ignored) and the models are in `models/breezyvoice` (only llm/flow/hift .pt, the two onnx files, spk2info, cosyvoice.yaml and configuration.json; no ttsfrd, flow ONNX/zip). There are no patches to the vendored code. Text normalization is stubbed in `breezy/tts.py`: a fake `tn` module that only turns integers into Chinese numerals (37 → 三十七), because ttsfrd is Linux-only and WeTextProcessing needs pynini.
+- E install fixes, all in `breezy/pyproject.toml`:
+  - openai-whisper 20250625 instead of 20231117, whose sdist needs `pkg_resources` to build.
+  - transformers pinned to <4.47. Otherwise uv picks huggingface-hub 2.x, backtracks to transformers 4.12 and tries a Rust build of tokenizers.
+  - `ruamel.yaml<0.18`, because HyperPyYAML 1.2.2 breaks on 0.19.
+  - `setuptools<70`, because `pkg_resources` is imported at runtime.
+- The first E run downloads the g2pW model (607 MB) into `breezy/G2PWModel/` (git-ignored) and the bert-base-chinese tokenizer into `HF_HOME`.
+- E speed: about 30x slower than real time on this 20-thread CPU, so roughly 5 min per sentence pair. Fine for offline batch work, too slow for iteration. The user listened to scene 1 and approved the Taiwan accent.
+- **E footprint (D:)**: `models/breezyvoice` 2.2 GB, `breezy/.venv` 2.4 GB (mostly hardlinked from the uv cache; `D:/uv-cache` grew from about 0.6 to 3.1 GB), `breezy/G2PWModel` 607 MB, `vendor/` 96 MB, `D:/uv-python` (CPython 3.10.20) 69 MB, `D:/hf-cache` < 1 MB. Real new usage is about 5.5 GB. C: side effects: `uv python install` put a 45 KB `python3.10.exe` shim in `~/.local/bin`, and a failed tokenizers source build (before the pin) made cargo download about 230 MB of crates into `~/.cargo/registry`.
+- **F Windows natural voice**: not available on this machine. System.Speech has only Hanhan Desktop and Zira. WinRT `SpeechSynthesizer.AllVoices` and OneCore have Hanhan, Yating and Zhiwei (all legacy `MSTTS_V110`). There are no natural-voice packages or `Speech_OneCore\Isolated` keys. To try F, the user would add a Chinese (Traditional, Taiwan) natural voice under Settings > Accessibility > Narrator > Natural voices > Add (for example "Microsoft HsiaoChen (Natural)"). Size and availability for this Windows build are unverified. Narrator natural voices are not exposed to SAPI or WinRT, so using them from scripts also needs a third-party adapter such as NaturalVoiceSAPIAdapter. Both are system-level installs that need approval.
 
 Times are run 1 / run 2. The machine was under variable load (even `du` was slow during run 2), so render times vary by about 2x for the same 20 s clip; read them as a 40–100 s per render range. The whole pipeline (4 TTS + 8 renders + mux) took 9m23s wall in run 1. Final video is 0.1–0.18 s longer than its audio because of per-animation frame rounding (silent tail; harmless).
 

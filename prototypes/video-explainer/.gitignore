@@ -3,3 +3,5 @@ models/
 out/
 media/
 __pycache__/
+vendor/
+breezy/G2PWModel/
