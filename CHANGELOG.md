@@ -21,3 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - README with both install routes, the skill list and the format ladder.
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.
 - MIT license.
+- `diagram-explainer` skill: explains a topic or AI output as one to three small Mermaid diagrams (flowchart,
+  sequence, state) with a one-line caption, saved to `out/diagram-explainer/<slug>/`. Includes the stdlib
+  `diagram_check.py` checker (budgets, label length, fragile syntax) with unit tests, the `render_diagram.py` SVG/PNG
+  renderer (Playwright, pinned Mermaid 11, no silent browser download), references with a type-selection table, and a
+  20-query trigger eval.
