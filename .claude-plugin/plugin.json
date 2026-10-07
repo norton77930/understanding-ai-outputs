@@ -1,0 +1,23 @@
+{
+  "name": "understanding-ai-outputs",
+  "version": "0.0.1",
+  "description": "Agent skills that turn LLM output into formats a human can understand faster, following Andrej Karpathy's post. First skill: ste-writing (relaxed Simplified Technical English style).",
+  "author": {
+    "name": "Norton Deng",
+    "url": "https://github.com/norton77930"
+  },
+  "homepage": "https://github.com/norton77930/understanding-ai-outputs",
+  "repository": "https://github.com/norton77930/understanding-ai-outputs",
+  "license": "MIT",
+  "keywords": [
+    "explainer",
+    "ste",
+    "simplified-technical-english",
+    "readability",
+    "writing",
+    "skills"
+  ],
+  "skills": [
+    "./skills/ste-writing"
+  ]
+}

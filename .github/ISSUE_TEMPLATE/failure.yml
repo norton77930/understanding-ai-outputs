@@ -1,0 +1,56 @@
+name: Observed failure
+description: A skill gave a bad output in a real session.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when a skill produced output that was hard to understand, broke its own rules, or did the wrong thing. Describe a real session, not a hypothetical improvement. For a new skill or format, use the "Idea" form instead.
+  - type: dropdown
+    id: skill
+    attributes:
+      label: Skill
+      description: Which skill produced the output.
+      options:
+        - ste-writing
+        - diagram-explainer
+        - html-explainer
+        - video-explainer
+        - Other or not sure
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and platform
+      description: e.g. Claude Code 2.x on Windows 11, Codex CLI on macOS, Cursor on Linux. Also name the model if you know it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The plugin version (`claude plugin list`) or, for `npx skills` installs, the commit or date you installed.
+    validations:
+      required: true
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: The exact prompt you gave the agent.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      description: The output the skill produced. Paste the relevant part.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      description: What the output should have looked like, and which rule in the `SKILL.md` (if any) says so.
+    validations:
+      required: true

@@ -1,0 +1,23 @@
+[
+  {"query": "can you explain how Kubernetes readiness probes work in STE? I'm onboarding a junior dev tomorrow and want something short I can paste into Slack for them", "should_trigger": true},
+  {"query": "Rewrite this in Simplified Technical English please: \"Prior to the commencement of the migration, it is imperative that all stakeholders ensure that the database has been backed up, as failure to do so may result in the irrecoverable loss of data.\"", "should_trigger": true},
+  {"query": "ASD-STE100 style please. what does git rebase --onto actually do? i always get it backwards", "should_trigger": true},
+  {"query": "walk me through the OAuth 2.0 PKCE flow, 80% STE is fine, i just need the short sentences and active voice", "should_trigger": true},
+  {"query": "strict STE: describe how to rotate the TLS cert on our nginx box (/etc/nginx/conf.d/api.conf). keep the commands exactly as they are", "should_trigger": true},
+  {"query": "用 STE 解釋一下 Docker 的 volume 跟 bind mount 差在哪裡，我要給新同事看", "should_trigger": true},
+  {"query": "ste pls - explain what a mutex is and when i'd pick it over a semaphore", "should_trigger": true},
+  {"query": "Going forward I want your answers in Simplified Technical English. First question: why does my React useEffect run twice in dev mode?", "should_trigger": true},
+  {"query": "This paragraph from our README is a mess: \"The utilization of the cache is contingent upon the configuration of the TTL parameter, which, if it is not set, will cause entries to persist indefinitely.\" Put it in ASD-STE100-style English, full STE, no wordy phrases.", "should_trigger": true},
+  {"query": "explain the CAP theorem the way Karpathy suggested, like it was written to the ASD-STE100 standard (or 80% of the way there)", "should_trigger": true},
+
+  {"query": "my manager says my incident summary is too dense and hard to read. can you make this simpler? \"At approximately 03:14 UTC, the primary replica experienced a replication lag exceeding the configured threshold, whereupon the failover orchestrator initiated promotion of the secondary.\"", "should_trigger": false},
+  {"query": "give me a plain English summary of the attached 40 page GDPR data protection impact assessment, I only have 10 minutes before the legal meeting", "should_trigger": false},
+  {"query": "ELI5: how does a blockchain actually work? my 12 year old nephew asked me and I blanked", "should_trigger": false},
+  {"query": "write a technical spec for a token-bucket rate limiter service in our Go API gateway (repo: gateway/internal/ratelimit). include the config schema, failure modes and metrics", "should_trigger": false},
+  {"query": "we're hiring a new STE for the payments team (software test engineer, mostly Playwright and k6). can you draft the job description and a short list of interview questions?", "should_trigger": false},
+  {"query": "simplify this python function, it has four nested for loops and my reviewer hates it:\n\ndef find_pairs(a, b, c, d):\n    out = []\n    for x in a:\n        for y in b:\n            for z in c:\n                for w in d:\n                    if x + y == z + w:\n                        out.append((x, y, z, w))\n    return out", "should_trigger": false},
+  {"query": "translate this paragraph into simple Chinese so my mom can read it. it's about how to turn on two-factor authentication on her bank app", "should_trigger": false},
+  {"query": "write the maintenance procedure for replacing the hydraulic pump filter on our Cessna 172 fleet. mechanics will use it on the hangar floor, so include torque values and safety warnings", "should_trigger": false},
+  {"query": "change the passive voice in this paragraph to active voice and leave everything else exactly as it is: \"The config file is read at startup, and the values are validated before the server is started.\"", "should_trigger": false},
+  {"query": "is ASD-STE100 still maintained? who publishes it, and when was the last issue of the specification released?", "should_trigger": false}
+]

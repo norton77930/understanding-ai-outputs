@@ -1,0 +1,31 @@
+name: Idea
+description: A new skill, a new format, or a larger change to an existing skill.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New skills and formats start as an issue, so nobody builds something outside the scope of this repo. Please do not open a pull request for a new skill before a maintainer agrees to the idea here.
+
+        Fixes to an existing skill do not need an idea issue. Open a pull request, or use the "Observed failure" form if you want to report it first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard to understand in an LLM output today? Describe a real case.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed skill or format
+      description: The skill or format you would add, and when an agent should use it. Say how it fits the format ladder (STE writing, diagram, web page, explainer video).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve the problem, including a prompt or an existing skill that already does it.
+    validations:
+      required: true
