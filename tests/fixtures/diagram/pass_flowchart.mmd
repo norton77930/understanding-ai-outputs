@@ -1,0 +1,7 @@
+flowchart TD
+    subgraph client [Client side]
+        A[User clicks Buy] --> B{Cart valid?}
+    end
+    B -->|Yes| C["Charge card (Stripe)"]
+    B -->|No| D[Show error]
+    C --> E[Send receipt]

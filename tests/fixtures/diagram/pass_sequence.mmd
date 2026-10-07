@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant U as User
+    participant W as Web app
+    participant API
+    U->>W: Click Buy
+    W->>API: POST order
+    alt Stock ok
+        API-->>W: Order id
+    else No stock
+        API-->>W: Error
+    end
+    W-->>U: Show result

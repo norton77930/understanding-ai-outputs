@@ -53,7 +53,7 @@ The text-to-speech system that turns narration into audio. One engine offers one
 _Avoid_: TTS backend, voice (a voice is one speaker inside an engine)
 
 **Layout check**:
-The review of still frames from a low-quality preview render, before the final render, to find overlapping, clipped or unreadable elements.
+The review of rendered still images of an explainer output, to find overlapping, clipped or unreadable elements. The images are preview frames from a low-quality video render (checked before the final render), rendered diagram images, or page screenshots.
 _Avoid_: QA, visual lint, self-check (that term belongs to STE writing)
 
 **Output preset**:
