@@ -37,3 +37,25 @@ _Avoid_: lint, validation
 **Exempt content**:
 Text the skill never rewrites: code, identifiers, commands, quoted source text, proper and product names.
 _Avoid_: protected text, skipped text
+
+## Explainer video
+
+**Scene**:
+One segment of an explainer video: one narration passage and the animation that plays while it is spoken. The narration audio sets the scene's length.
+_Avoid_: shot, clip, slide
+
+**Narration**:
+The spoken text of an explainer video, one passage per scene. It follows relaxed STE in English and the STE principles in other languages.
+_Avoid_: voice-over script, transcript
+
+**Narration engine**:
+The text-to-speech system that turns narration into audio. One engine offers one or more voices.
+_Avoid_: TTS backend, voice (a voice is one speaker inside an engine)
+
+**Layout check**:
+The review of still frames from a low-quality preview render, before the final render, to find overlapping, clipped or unreadable elements.
+_Avoid_: QA, visual lint, self-check (that term belongs to STE writing)
+
+**Output preset**:
+A named set of video output settings (aspect ratio, resolution, target length). Three values: **explainer** (the default), **youtube**, **short**.
+_Avoid_: format (reserved for the format ladder), profile, mode
