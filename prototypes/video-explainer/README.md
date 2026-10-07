@@ -81,3 +81,10 @@ I opened the `-ql` frames with an image-reading tool and judged them myself.
   - Provisional zh-TW default: **C**, with **B** as the offline fallback. Confirm by listening in `out/compare.html`.
 - The zh narration runs 26–28 s at natural rates (C, D), so for a ~20 s target the zh script needs to be about 25% shorter, or the rate raised (edge-tts `rate="+15%"`).
 - Whisper's slips (由→有, 每→沒, 排→牌) are tone-only homophone confusions. They appear across engines, so they are weak evidence about any single TTS.
+
+## Verdict (maintainer, 2026-10-07, after listening to A–E)
+
+- **V1** renderer: ManimCE.
+- **V2** English default: Kokoro af_heart (A).
+- **V3** zh-TW: default edge-tts HsiaoChen (C); offline fallback Kokoro zf_001 (B). BreezyVoice (E) is an optional "offline + Taiwan accent" engine, documented as slow on CPU (RTF about 33) and better with a GPU. SAPI Hanhan (D) is dropped.
+- F (Windows natural voice) is not pursued: same voice as C, and it needs a system-level voice install plus a third-party SAPI adapter.
