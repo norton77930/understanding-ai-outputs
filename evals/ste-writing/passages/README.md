@@ -1,6 +1,6 @@
 # Eval passages
 
-Status: DRAFT — pending maintainer review (issue #8)
+Status: approved by the maintainer on 2026-10-07 (issue #8)
 
 Eight passages, all written for this repo (no copied text). They are deliberately wordy: passive voice, long sentences, wordy phrases ("utilize", "prior to", "in order to") and stacked noun phrases. The harness gives each one to an agent with the request "Rewrite the following text in STE."
 
@@ -17,4 +17,4 @@ Eight passages, all written for this repo (no copied text). They are deliberatel
 
 The Chinese passages are sized in characters, not words. They have no numeric metrics; the maintainer reviews them by hand.
 
-Please check each passage for: realistic content, enough wordiness to give the skill room to help, and no accidental copy of third-party text.
+When you change or add a passage, check it for: realistic content, enough wordiness to give the skill room to help, and no accidental copy of third-party text.

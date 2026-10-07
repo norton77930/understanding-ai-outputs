@@ -15,7 +15,7 @@ python -m unittest discover -s evals/ste-writing -p test_run_eval.py   # unit te
 
 Needs the `claude` CLI on `PATH` and Python 3.12 (standard library only). One full run is 16 rewrite calls plus 8 judge calls. Output goes to `evals/ste-writing/runs/<timestamp>/` (git-ignored): one `.txt` per passage and arm, the judge replies, `report.md` and `report.json`.
 
-The passages are in `passages/` and are DRAFT until the maintainer approves them (see `passages/README.md`).
+The passages are in `passages/` (approved by the maintainer; see `passages/README.md`).
 
 ## What one run does
 
