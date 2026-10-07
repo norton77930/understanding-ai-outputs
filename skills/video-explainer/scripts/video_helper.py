@@ -15,15 +15,20 @@ Rules the helper keeps for you:
   ends with a short still hold, so frames sampled near the scene end are settled.
 - ctx.swap_caption() fades the old caption out before the new one fades in
   (a cross-fade at one position ghosts).
+- fallback_scene() draws a title and bullets from the narration for a scene
+  the storyboard marks "fallback": true (make_video.py calls it).
 
 Objects stay on screen across scenes until you remove them. Keep shared
 objects in a module-level dict if a later scene needs them.
 """
 
+import re
+import textwrap
 from dataclasses import dataclass
 
 import numpy as np
-from manim import DOWN, WHITE, FadeIn, FadeOut, Paragraph, Succession, Text
+from manim import (DOWN, LEFT, RIGHT, WHITE, FadeIn, FadeOut, LaggedStart, Paragraph,
+                   Succession, Text, VGroup)
 
 # Still time at the end of every ctx.beats() call (seconds). make_video.py
 # samples preview frames 0.2 s before the scene end, inside this hold.
@@ -224,3 +229,70 @@ class SceneContext:
 
     def _frames_until(self, t):
         return int(round((t - self.scene.renderer.time) * self.fps))
+
+
+# ---------------------------------------------------------------- fallback scene
+
+CLAUSE_RE = re.compile(r"[^,.;:!?，。；：！？、]+[,.;:!?，。；：！？、]*")
+CLAUSE_END = ",.;:!?，。；：！？、 "
+# Bullet line width in characters: (portrait, landscape) per script.
+BULLET_CHARS = {"zh": (10, 18), "default": (22, 40)}
+
+
+def fallback_text(narration, title=None, max_bullets=4):
+    """Title and 2 to max_bullets bullets drawn from a scene's narration.
+
+    The title is the given one, else the narration's first clause; the
+    bullets are the following clauses (all clauses when fewer than two follow).
+    """
+    clauses = [c.strip().rstrip(CLAUSE_END) for c in CLAUSE_RE.findall(narration.strip())]
+    clauses = [c for c in clauses if c] or [narration.strip()]
+    rest = clauses if title else clauses[1:]
+    title = title or clauses[0]
+    if len(rest) < 2:
+        rest = clauses
+    if len(rest) < 2:
+        rest = _halve(rest[0])
+    return title, rest[:max_bullets]
+
+
+def _halve(text):
+    words = text.split()
+    if len(words) > 1:
+        mid = (len(words) + 1) // 2
+        return [" ".join(words[:mid]), " ".join(words[mid:])]
+    mid = (len(text) + 1) // 2
+    return [text[:mid], text[mid:]] if len(text) > 1 else [text]
+
+
+def _wrap(text, width, zh):
+    if zh:
+        return [text[i:i + width] for i in range(0, len(text), width)]
+    return textwrap.wrap(text, width) or [text]
+
+
+def fallback_scene(ctx, title=None):
+    """Draw the fallback for a scene that cannot be rendered: a title and 2-4
+    bullets from ctx.narration, filling ctx.duration. Works in any aspect
+    ratio. make_video.py uses it for storyboard scenes marked "fallback": true;
+    it clears the screen first and restores it after the scene."""
+    title_text, bullets = fallback_text(ctx.narration, title)
+    zh = ctx.lang.lower().startswith("zh")
+    portrait = ctx.layout.frame_width < ctx.layout.frame_height
+    width = BULLET_CHARS["zh" if zh else "default"][0 if portrait else 1]
+    heading = ctx.title(title_text)
+    items = []
+    for bullet in bullets:
+        dot = ctx.text("•")
+        lines = Paragraph(*_wrap(bullet, width, zh), alignment="left", font=ctx.font,
+                          font_size=TEXT_SIZE * ctx.layout.text_scale, color=WHITE,
+                          line_spacing=0.6)
+        dot.next_to(lines[0], LEFT, buff=0.25 * ctx.layout.text_scale)
+        items.append(VGroup(dot, lines))
+    body = VGroup(*items).arrange(DOWN, aligned_edge=LEFT, buff=0.35 * ctx.layout.text_scale)
+    ctx.layout.fit(body, ctx.layout.content, buff=0.1 * ctx.layout.text_scale)
+    ctx.beats([
+        (FadeIn(heading), 1),
+        (LaggedStart(*[FadeIn(item, shift=0.2 * RIGHT) for item in items], lag_ratio=0.6), 3),
+        (None, 1),
+    ])

@@ -19,8 +19,22 @@ Usage:
 Each command prints one JSON object to stdout. Exit codes:
     0  success
     1  a check failed (invalid storyboard, missing scene function,
-       no narration engine for the language)
-    2  environment or runtime error (missing tool or model, render failure)
+       no narration engine for the language), or scene code raised during
+       preview/final: each scene in "scenes" then has "status" ("ok",
+       "fallback" or "failed") and failed ones an "error" {type, message,
+       traceback}. The other scenes still render; final writes no video.
+    2  environment or runtime error (missing uv/ffmpeg/ffprobe, reported in
+       "missing_tools" with the doctor's install hints; missing model;
+       render failure outside scene code)
+
+Stop rules, set per scene in the storyboard:
+    "fallback": true    draw the helper's fallback (title plus 2-4 bullets from
+                        the narration; optional "title") instead of the scene
+                        function, e.g. after three failed fixes
+    "flagged": "why"    a layout problem left after two fix rounds; final
+                        still renders and lists it
+final's JSON lists them in "replaced" (scene ids) and "flagged"
+({id, reason, frame}, the frame being the last preview frame of the scene).
 
 `plan` and `fetch-models` need only the Python standard library, and `plan`
 never touches the network: it assumes edge-tts is reachable unless --offline
@@ -55,6 +69,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import traceback
 import urllib.request
 import wave
 from pathlib import Path
@@ -119,7 +134,11 @@ class CheckFailed(Exception):
 
 
 class RuntimeFailure(Exception):
-    """Environment or runtime problem. Exit 2."""
+    """Environment or runtime problem. Exit 2. extra: keys added to the JSON."""
+
+    def __init__(self, message, extra=None):
+        super().__init__(message)
+        self.extra = extra or {}
 
 
 # ---------------------------------------------------------------- estimates
@@ -486,6 +505,15 @@ def validate(board):
         narration = scene.get("narration")
         if not isinstance(narration, str) or not narration.strip():
             errors.append(f"narration of scene {sid!r} is empty")
+        if not isinstance(scene.get("fallback", False), bool):
+            errors.append(f"fallback of scene {sid!r} must be true or false, "
+                          f"not {scene['fallback']!r}")
+        flagged = scene.get("flagged")
+        if flagged is not None and (not isinstance(flagged, str) or not flagged.strip()):
+            errors.append(f"flagged of scene {sid!r} must be a non-empty reason or null")
+        title = scene.get("title")
+        if title is not None and (not isinstance(title, str) or not title.strip()):
+            errors.append(f"title of scene {sid!r} must be a non-empty string or null")
     if errors:
         raise CheckFailed(errors)
     board.setdefault("preset", DEFAULT_PRESET)
@@ -530,7 +558,8 @@ def cmd_plan(args):
         scenes.append({"id": s["id"], "narration": s["narration"],
                        "units": text_units(s["narration"]),
                        "estimated_seconds": round(seconds, 2),
-                       "captions": split_captions(s["narration"], board["lang"])})
+                       "captions": split_captions(s["narration"], board["lang"]),
+                       "fallback": s.get("fallback", False), "flagged": s.get("flagged")})
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
     low, high = preset["target_seconds"]
     if total > high:
@@ -647,21 +676,55 @@ def load_scenes_module(path, board):
         spec.loader.exec_module(module)
     except ImportError as exc:
         raise RuntimeFailure(f"cannot import scenes module: {exc}")
+    except Exception as exc:
+        error = scene_error(exc)
+        raise CheckFailed([f"scenes module raised on import: {error['type']}: "
+                           f"{error['message']}\n{error['traceback']}"])
     table = getattr(module, "SCENES", None) or {}
     functions, missing = {}, []
     for s in board["scenes"]:
         fn = table.get(s["id"]) or getattr(module, s["id"], None)
         if callable(fn):
             functions[s["id"]] = fn
-        else:
+        elif not s.get("fallback"):
             missing.append(f"scenes module has no function for scene {s['id']!r}")
     if missing:
         raise CheckFailed(missing)
     return functions
 
 
+def scene_error(exc):
+    """Short, JSON-ready record of an exception raised by scene code."""
+    tail = "".join(traceback.format_exception(exc)).strip()
+    return {"type": type(exc).__name__, "message": str(exc)[:300],
+            "traceback": tail[-1500:]}
+
+
+def recover_renderer(renderer):
+    """Leave the ManimCE renderer ready for the next play() after scene code
+    raised inside one: close a half-written partial movie, or drop the
+    partial movie entry of a play that never started writing."""
+    writer = renderer.file_writer
+    if len(writer.partial_movie_files) <= renderer.num_plays:
+        return
+    if getattr(writer, "_current_encode_job", None) is not None:
+        writer.close_partial_movie_stream()
+        renderer.num_plays += 1
+    else:
+        writer.partial_movie_files.pop()
+        if len(renderer.animations_hashes) > renderer.num_plays:
+            renderer.animations_hashes.pop()
+
+
 def render(board, functions, timing, preset, width, height, fps, media_dir, name):
-    """Render all scenes in one ManimCE scene. Returns (video path, seconds).
+    """Render all scenes in one ManimCE scene.
+
+    Returns (video path, seconds, failures) where failures maps the id of each
+    scene whose code raised to scene_error(). A failed scene is cleared from
+    the screen and its time is filled with the screen as it was before it, so
+    later scenes still render and keep their timing. Scenes marked
+    "fallback": true are drawn by video_helper.fallback_scene() on a cleared
+    screen instead of their function; the screen is restored after them.
 
     With preset["burn_captions"], each scene's narration is drawn as one
     scene-level caption (appears with the scene, leaves with it).
@@ -676,6 +739,7 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
     lang = board["lang"]
     burn = preset["burn_captions"]
     char_limit = preset.get("caption_chars")
+    failures = {}
 
     class Explainer(manim.Scene):
         def construct(self):
@@ -688,15 +752,30 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
                     start=record["start"], duration=record["duration"],
                     speech_seconds=record["speech_seconds"], layout=layout, font=font,
                     fps=fps)
+                before = list(self.mobjects)
+                if s.get("fallback"):
+                    self.clear()
                 burned = None
                 if burn:
                     burned = ctx.narration_caption(split_captions(s["narration"], lang,
                                                                   char_limit))
                     self.add(burned)
-                functions[s["id"]](ctx)
+                try:
+                    if s.get("fallback"):
+                        video_helper.fallback_scene(ctx, s.get("title"))
+                    else:
+                        functions[s["id"]](ctx)
+                except Exception as exc:
+                    failures[s["id"]] = scene_error(exc)
+                    recover_renderer(self.renderer)
+                    self.clear()
+                    self.add(*before, *([burned] if burned is not None else []))
                 ctx.wait_until(record["end"])
                 if burned is not None:
                     self.remove(burned)
+                if s.get("fallback"):
+                    self.clear()
+                    self.add(*before)
 
     settings = {"pixel_width": width, "pixel_height": height, "frame_rate": fps,
                 "frame_height": 8.0, "frame_width": 8.0 * width / height,
@@ -713,7 +792,19 @@ def render(board, functions, timing, preset, width, height, fps, media_dir, name
         raise
     except Exception as exc:
         raise RuntimeFailure(f"render failed: {type(exc).__name__}: {exc}")
-    return video, time.perf_counter() - t0
+    return video, time.perf_counter() - t0, failures
+
+
+def scene_status(scene, failures):
+    if scene["id"] in failures:
+        return {"status": "failed", "error": failures[scene["id"]]}
+    return {"status": "fallback" if scene.get("fallback") else "ok"}
+
+
+def failure_errors(failures):
+    return [f"scene {sid} failed to render: {e['type']}: {e['message']}. Fix its function, "
+            "or after three failed fixes set \"fallback\": true on the scene in the storyboard."
+            for sid, e in failures.items()]
 
 
 def use_fallback(selection, why):
@@ -749,8 +840,29 @@ def narrate(board, selection, work):
         raise RuntimeFailure(str(exc))
 
 
+REQUIRED_TOOLS = ("uv", "ffmpeg", "ffprobe")
+
+
+def require_tools():
+    """Stop (exit 2) when a tool from the doctor's minimum set is missing.
+
+    Uses the doctor's probes, so VIDEO_EXPLAINER_DOCTOR_PATH applies here too.
+    Runs before the scenes module (and so ManimCE) is imported.
+    """
+    missing = [{"tool": name, "hint": cap["hint"]}
+               for name, cap in ((n, doctor.probe_tool(n)) for n in REQUIRED_TOOLS)
+               if not cap["available"]]
+    if missing:
+        names = ", ".join(m["tool"] for m in missing)
+        raise RuntimeFailure(
+            f"required tool missing: {names}. Install it, then run "
+            f"`python {HERE / 'doctor.py'}` to check the machine before rendering again.",
+            {"missing_tools": missing})
+
+
 def prepare(args):
     board = load_storyboard(args.storyboard)
+    require_tools()
     selection = select_engine(board, offline=network_offline())
     functions = load_scenes_module(args.scenes, board)
     out = out_dir_for(board, args.out)
@@ -772,19 +884,23 @@ def cmd_preview(args):
     scale = preset["preview_short_side"] / min(preset["width"], preset["height"])
     width = int(round(preset["width"] * scale / 2)) * 2
     height = int(round(preset["height"] * scale / 2)) * 2
-    video, seconds = render(board, functions, timing, preset, width, height,
-                            preset["preview_fps"],
-                            work / "media_preview", "preview.mp4")
+    video, seconds, failures = render(board, functions, timing, preset, width, height,
+                                      preset["preview_fps"],
+                                      work / "media_preview", "preview.mp4")
     frames = out / "frames"
     frames.mkdir(exist_ok=True)
     scenes = []
-    for t in public_timing(timing):
+    for t, s in zip(public_timing(timing), board["scenes"]):
         frame = frames / f"{t['id']}.png"
-        at = max(t["start"], t["end"] - 0.2)  # inside the final hold of the scene
-        run_tool(["ffmpeg", "-y", "-v", "error", "-ss", f"{at:.3f}", "-i", str(video),
-                  "-frames:v", "1", str(frame)])
-        scenes.append(dict(t, frame=str(frame)))
-    result = {"ok": True, "command": "preview", "slug": board["slug"],
+        frame.unlink(missing_ok=True)  # never leave a stale frame for a failed scene
+        status = scene_status(s, failures)
+        if status["status"] != "failed":
+            at = max(t["start"], t["end"] - 0.2)  # inside the final hold of the scene
+            run_tool(["ffmpeg", "-y", "-v", "error", "-ss", f"{at:.3f}", "-i", str(video),
+                      "-frames:v", "1", str(frame)])
+        scenes.append(dict(t, **status, frame=str(frame) if frame.is_file() else None))
+    result = {"ok": not failures, "command": "preview", "slug": board["slug"],
+              **({"errors": failure_errors(failures)} if failures else {}),
               "engine": engine_info(selection), "notices": selection["notices"],
               "preview": {"width": width, "height": height, "fps": preset["preview_fps"]},
               "scenes": scenes,
@@ -818,8 +934,25 @@ def write_script(path, board):
 def cmd_final(args):
     board, selection, functions, out, work, timing, narration = prepare(args)
     preset = PRESETS[board["preset"]]
-    rendered, seconds = render(board, functions, timing, preset, preset["width"],
-                               preset["height"], preset["fps"], work / "media_final", "final.mp4")
+    rendered, seconds, failures = render(board, functions, timing, preset, preset["width"],
+                                         preset["height"], preset["fps"], work / "media_final",
+                                         "final.mp4")
+    scenes = [dict(t, **scene_status(s, failures))
+              for t, s in zip(public_timing(timing), board["scenes"])]
+    if failures:
+        result = {"ok": False, "command": "final", "slug": board["slug"],
+                  "errors": failure_errors(failures), "engine": engine_info(selection),
+                  "notices": selection["notices"], "preset": preset_info(board["preset"]),
+                  "scenes": scenes, "render_seconds": round(seconds, 1), "out_dir": str(out)}
+        write_json(out / "final.json", result)
+        return result
+    replaced = [s["id"] for s in board["scenes"] if s.get("fallback")]
+    flagged = []
+    for s in board["scenes"]:
+        if s.get("flagged"):
+            frame = out / "frames" / f"{s['id']}.png"
+            flagged.append({"id": s["id"], "reason": s["flagged"],
+                            "frame": str(frame) if frame.is_file() else None})
     video = out / "video.mp4"
     run_tool(["ffmpeg", "-y", "-v", "error", "-i", str(rendered), "-i", str(narration),
               "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
@@ -831,8 +964,8 @@ def cmd_final(args):
     video_seconds = probe_seconds(video, "v:0")
     result = {"ok": True, "command": "final", "slug": board["slug"],
               "engine": engine_info(selection), "notices": selection["notices"],
-              "preset": preset_info(board["preset"]), "scenes": public_timing(timing),
-              "video": str(video), "srt": str(srt), "script": str(script),
+              "preset": preset_info(board["preset"]), "scenes": scenes,
+              "replaced": replaced, "flagged": flagged, "video": str(video), "srt": str(srt), "script": str(script),
               "audio_seconds": round(audio_seconds, 3),
               "video_seconds": round(video_seconds, 3),
               "difference_seconds": round(video_seconds - audio_seconds, 3),
@@ -901,11 +1034,13 @@ def main(argv=None):
         # Libraries (phonemizer, ManimCE logging) may print; stdout carries
         # only the final JSON object.
         with contextlib.redirect_stdout(sys.stderr):
-            result, code = handler(args), 0
+            result = handler(args)
+            code = 0 if result["ok"] else 1  # not ok: a scene failed to render
     except CheckFailed as exc:
         result, code = {"ok": False, "command": args.command, "errors": exc.errors}, 1
     except RuntimeFailure as exc:
-        result, code = {"ok": False, "command": args.command, "errors": [str(exc)]}, 2
+        result, code = {"ok": False, "command": args.command, "errors": [str(exc)],
+                        **exc.extra}, 2
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return code
 

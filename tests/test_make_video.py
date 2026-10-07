@@ -189,6 +189,64 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(data["ok"])
 
 
+class StopRuleTests(unittest.TestCase):
+    """Fallback and flag fields in `plan`, and the missing-tool stop (no render)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def write(self, board):
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def plan(self, board):
+        return run([sys.executable, str(SCRIPT), "plan", str(self.write(board)),
+                    "--out", str(self.tmp / "out")])
+
+    def test_plan_accepts_fallback_flagged_and_title(self):
+        board = load_storyboard()
+        board["scenes"][1].update(fallback=True, title="Check the middle")
+        board["scenes"][2]["flagged"] = "label overlaps the caption"
+        code, data = self.plan(board)
+        self.assertEqual(code, 0, data)
+        self.assertEqual([(s["fallback"], s["flagged"]) for s in data["scenes"]],
+                         [(False, None), (True, None), (False, "label overlaps the caption")])
+
+    def test_fallback_must_be_true_or_false(self):
+        board = load_storyboard()
+        board["scenes"][1]["fallback"] = "s2"
+        code, data = self.plan(board)
+        self.assertEqual(code, 1, data)
+        self.assertTrue(any(re.search("fallback.*s2", e) for e in data["errors"]), data)
+
+    def test_flagged_must_be_a_reason(self):
+        board = load_storyboard()
+        board["scenes"][2]["flagged"] = " "
+        code, data = self.plan(board)
+        self.assertEqual(code, 1, data)
+        self.assertTrue(any(re.search("flagged.*s3", e) for e in data["errors"]), data)
+
+    def test_missing_ffmpeg_stops_preview_and_final_with_hint(self):
+        tools = self.tmp / "bin"
+        tools.mkdir()
+        for name in ("uv", "ffprobe"):
+            (tools / (f"{name}.cmd" if os.name == "nt" else name)).write_text("", encoding="utf-8")
+            if os.name != "nt":
+                (tools / name).chmod(0o755)
+        env = dict(os.environ, VIDEO_EXPLAINER_DOCTOR_PATH=str(tools))
+        for command in ("preview", "final"):
+            code, data = run([sys.executable, str(SCRIPT), command, str(STORYBOARD), str(SCENES),
+                              "--out", str(self.tmp / "out")], env=env)
+            self.assertEqual(code, 2, data)
+            self.assertFalse(data["ok"])
+            self.assertEqual([t["tool"] for t in data["missing_tools"]], ["ffmpeg"])
+            self.assertIn("Install ffmpeg", data["missing_tools"][0]["hint"])
+            self.assertTrue(any("doctor.py" in e and "ffmpeg" in e for e in data["errors"]),
+                            data["errors"])
+
+
 KOKORO_EN_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 KOKORO_ZH_FILES = ("kokoro-v1.1-zh.onnx", "voices-v1.1-zh.bin", "config-v1.1-zh.json")
 
@@ -393,6 +451,81 @@ class EndToEndTests(unittest.TestCase):
             self.assertAlmostEqual(srt_seconds(start), scene["start"], delta=0.002)
             self.assertAlmostEqual(srt_seconds(end), scene["end"], delta=0.002)
             self.assertAlmostEqual(scene["end"] - scene["start"], scene["duration"], delta=0.002)
+
+
+SCENES_FAILING = FIXTURES / "scenes_failing.py"
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class FallbackEndToEndTests(unittest.TestCase):
+    """A scene that raises: reported per scene, then replaced by the fallback."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        base = ["uv", "run", "--script", str(SCRIPT)]
+        out = ["--out", str(cls.tmp / "out")]
+        broken = cls.tmp / "broken.json"
+        broken.write_text(json.dumps(load_storyboard()), encoding="utf-8")
+        fixed = load_storyboard()
+        fixed["scenes"][1]["fallback"] = True
+        fixed["scenes"][2]["flagged"] = "caption touches the boxes"
+        cls.fixed = cls.tmp / "fixed.json"
+        cls.fixed.write_text(json.dumps(fixed), encoding="utf-8")
+        cls.runs = {}
+        for key, command, board in (("broken", "preview", broken), ("broken", "final", broken),
+                                    ("fixed", "preview", cls.fixed),
+                                    ("fixed", "final", cls.fixed)):
+            cls.runs[key, command] = run(base + [command, str(board), str(SCENES_FAILING)] + out)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_preview_reports_the_failed_scene_and_keeps_the_others(self):
+        code, data = self.runs["broken", "preview"]
+        self.assertEqual(code, 1, data)
+        self.assertFalse(data["ok"])
+        by_id = {s["id"]: s for s in data["scenes"]}
+        self.assertEqual(by_id["s2"]["status"], "failed")
+        error = by_id["s2"]["error"]
+        self.assertEqual(error["type"], "ValueError")
+        self.assertIn("deliberate failure in s2", error["message"])
+        self.assertIn("scenes_failing.py", error["traceback"])
+        self.assertIsNone(by_id["s2"]["frame"])
+        for sid in ("s1", "s3"):
+            self.assertEqual(by_id[sid]["status"], "ok")
+            self.assertTrue(Path(by_id[sid]["frame"]).is_file(), by_id[sid])
+        self.assertTrue(any("s2" in e for e in data["errors"]), data["errors"])
+
+    def test_final_with_a_failing_scene_stops_without_video(self):
+        code, data = self.runs["broken", "final"]
+        self.assertEqual(code, 1, data)
+        self.assertEqual([s["id"] for s in data["scenes"] if s["status"] == "failed"], ["s2"])
+        self.assertNotIn("video", data)
+
+    def test_fallback_scene_is_previewed(self):
+        code, data = self.runs["fixed", "preview"]
+        self.assertEqual(code, 0, data)
+        by_id = {s["id"]: s for s in data["scenes"]}
+        self.assertEqual(by_id["s2"]["status"], "fallback")
+        self.assertTrue(all(Path(s["frame"]).is_file() for s in data["scenes"]), data)
+
+    def test_final_replaces_the_failing_scene_and_reports_it(self):
+        code, data = self.runs["fixed", "final"]
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["replaced"], ["s2"])
+        self.assertLessEqual(abs(data["difference_seconds"]), 0.3, data)
+        v = ffprobe_seconds(Path(data["video"]), "v:0")
+        self.assertLessEqual(abs(v - sum(s["duration"] for s in data["scenes"])), 0.3)
+
+    def test_final_lists_flagged_scenes_with_their_preview_frame(self):
+        code, data = self.runs["fixed", "final"]
+        self.assertEqual(code, 0, data)
+        self.assertEqual([(f["id"], f["reason"]) for f in data["flagged"]],
+                         [("s3", "caption touches the boxes")])
+        self.assertTrue(Path(data["flagged"][0]["frame"]).is_file(), data["flagged"])
 
 
 def frame_pixels(video, seconds, x0, y0, x1, y1):
