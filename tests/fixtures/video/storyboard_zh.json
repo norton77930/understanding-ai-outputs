@@ -1,0 +1,10 @@
+{
+  "slug": "tiny-halving-zh",
+  "lang": "zh-TW",
+  "preset": "explainer",
+  "engine": null,
+  "scenes": [
+    {"id": "s1", "narration": "這裡有八個排好的格子。我們要找出一個數字。"},
+    {"id": "s2", "narration": "先看正中間。數字太小，就丟掉左邊一半。"}
+  ]
+}

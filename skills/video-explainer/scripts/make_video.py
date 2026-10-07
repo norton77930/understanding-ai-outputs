@@ -2,23 +2,42 @@
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
 #     "manim>=0.21,<0.22",
+#     "kokoro-onnx>=0.6,<0.7",
+#     "misaki-fork[zh]>=0.9",
+#     "soundfile",
+#     "edge-tts>=7",
 # ]
 # ///
 """Orchestrator for the video-explainer skill: storyboard -> video.
 
 Usage:
-    python make_video.py plan STORYBOARD.json [--out DIR]
+    python make_video.py plan STORYBOARD.json [--out DIR] [--offline]
     uv run make_video.py preview STORYBOARD.json SCENES.py [--out DIR]
     uv run make_video.py final STORYBOARD.json SCENES.py [--out DIR]
+    python make_video.py fetch-models SET [SET ...]     (kokoro-en, kokoro-zh)
 
 Each command prints one JSON object to stdout. Exit codes:
     0  success
-    1  a check failed (invalid storyboard, missing scene function)
-    2  environment or runtime error (missing tool, render failure)
+    1  a check failed (invalid storyboard, missing scene function,
+       no narration engine for the language)
+    2  environment or runtime error (missing tool or model, render failure)
 
-`plan` needs only the Python standard library. `preview` and `final` need
-ffmpeg/ffprobe on PATH and ManimCE, which `uv run` installs from the inline
-dependency block above. Heavy imports happen only inside those commands.
+`plan` and `fetch-models` need only the Python standard library, and `plan`
+never touches the network: it assumes edge-tts is reachable unless --offline
+or VIDEO_EXPLAINER_OFFLINE=1 says otherwise. `preview` and `final` check
+edge-tts reachability for real and fall back to Kokoro Chinese when it fails.
+They need ffmpeg/ffprobe on PATH and the packages in the inline dependency
+block above, which `uv run` installs. Heavy imports happen only inside them.
+
+Narration engines (selection rules in select_engine()):
+    kokoro    offline; en default (af_heart), zh-TW offline fallback (zf_001)
+    edge-tts  network; zh-TW default (zh-TW-HsiaoChenNeural)
+    silent    tests only; silence sized from the text-length estimate
+Kokoro model files live in the doctor's cache dir (VIDEO_EXPLAINER_CACHE or
+the user cache dir), never in the project. When they are missing, `plan`
+lists them under "downloads"; `preview` and `final` stop with exit 2 and
+never download. Narration audio is cached per text/engine/voice in the
+output's work/audio/cache, so `final` reuses what `preview` synthesized.
 
 Default output folder: out/video-explainer/<slug>/ relative to the current
 working directory.
@@ -27,17 +46,24 @@ working directory.
 import argparse
 import contextlib
 import importlib.util
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import textwrap
 import time
+import urllib.request
 import wave
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import doctor  # noqa: E402  (stdlib only; shares the model cache dir and network probe)
 
 # Silence appended after each scene's speech. The scene length is
 # speech + PAD_SECONDS, so the picture can settle before the next scene.
@@ -151,10 +177,12 @@ def _wrap_zh(sentence, limit):
 class SilentEngine:
     """Test-only narration engine: silence sized from the text-length estimate.
 
-    Engine interface (#18 adds Kokoro and edge-tts with the same shape):
+    Engine interface (shared by every engine in ENGINES):
         name: str            registry key used in the storyboard "engine" field
         default_voice: str | None
         extension: str       file type that synthesize() writes
+        voice_for(lang) -> str | None          default voice for a language
+        missing_models(voice) -> [(set, name, url, bytes)]   files not yet cached
         synthesize(text, lang, voice, path) -> None   write speech audio to path
     The orchestrator normalizes, pads and measures whatever the engine writes.
     """
@@ -173,30 +201,219 @@ class SilentEngine:
             w.writeframes(b"\x00\x00" * frames)
 
 
-ENGINES = {"silent": SilentEngine()}
+    def voice_for(self, lang):
+        return None
 
-# Default engine per language prefix when the storyboard has "engine": null.
-# Empty in this version: only the silent engine exists (#18 fills this in).
-DEFAULT_ENGINES = {}
+    def missing_models(self, voice):
+        return []
 
 
-def select_engine(board):
-    """Return (engine, voice, notices). Assumes validate() already passed."""
-    notices = []
+# Kokoro model files. They live in the doctor's cache dir (never in the
+# project) and are fetched only by `make_video.py fetch-models`.
+_KOKORO_RELEASES = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+MODEL_SETS = {
+    "kokoro-en": [
+        ("kokoro-v1.0.onnx", _KOKORO_RELEASES + "model-files-v1.0/kokoro-v1.0.onnx", 325532387),
+        ("voices-v1.0.bin", _KOKORO_RELEASES + "model-files-v1.0/voices-v1.0.bin", 28214398),
+    ],
+    "kokoro-zh": [
+        ("kokoro-v1.1-zh.onnx", _KOKORO_RELEASES + "model-files-v1.1/kokoro-v1.1-zh.onnx",
+         325506167),
+        ("voices-v1.1-zh.bin", _KOKORO_RELEASES + "model-files-v1.1/voices-v1.1-zh.bin", 53815880),
+        ("config-v1.1-zh.json",
+         "https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh/raw/main/config.json", 3228),
+    ],
+}
+
+
+def size_mb(size):
+    return round(size / 1e6, 1) or 0.1
+
+
+def find_model(name):
+    """Path of a model file anywhere under the cache dir, or None."""
+    cache = doctor.cache_dir()
+    if not cache.is_dir():
+        return None
+    return next((p for p in cache.rglob(name) if p.is_file()), None)
+
+
+class KokoroEngine:
+    """Kokoro via kokoro-onnx (offline, Apache-2.0 weights).
+
+    Voices starting with "z" use the Kokoro v1.1-zh model with the misaki
+    Chinese G2P; all other voices use Kokoro v1.0, with the language taken
+    from the voice prefix (a = American English, b = British English, ...).
+    """
+
+    name = "kokoro"
+    default_voice = "af_heart"
+    extension = "wav"
+    # Language tag (lower case; tried in full, then by primary subtag) -> voice.
+    VOICES = {"en": "af_heart", "en-gb": "bf_emma", "zh": "zf_001", "es": "ef_dora",
+              "fr": "ff_siwis", "hi": "hf_alpha", "it": "if_sara", "ja": "jf_alpha",
+              "pt": "pf_dora"}
+    PREFIX_LANG = {"a": "en-us", "b": "en-gb", "e": "es", "f": "fr-fr", "h": "hi",
+                   "i": "it", "j": "ja", "p": "pt-br"}
+
+    def __init__(self):
+        self._models = {}
+
+    def voice_for(self, lang):
+        lang = lang.lower()
+        return self.VOICES.get(lang, self.VOICES.get(lang.split("-")[0]))
+
+    @staticmethod
+    def model_set(voice):
+        return "kokoro-zh" if voice.startswith("z") else "kokoro-en"
+
+    def missing_models(self, voice):
+        return [(set_name, name, url, size)
+                for set_name in [self.model_set(voice)]
+                for name, url, size in MODEL_SETS[set_name] if find_model(name) is None]
+
+    def _load(self, set_name):
+        if set_name not in self._models:
+            from kokoro_onnx import Kokoro
+
+            files = [find_model(name) for name, _, _ in MODEL_SETS[set_name]]
+            if None in files:
+                raise RuntimeFailure(f"Kokoro model files are missing from {doctor.cache_dir()}; "
+                                     f"run `make_video.py fetch-models {set_name}` first")
+            if set_name == "kokoro-zh":
+                from misaki import zh
+
+                model = Kokoro(str(files[0]), str(files[1]), vocab_config=str(files[2]))
+                self._models[set_name] = (model, zh.ZHG2P(version="1.1"))
+            else:
+                self._models[set_name] = (Kokoro(str(files[0]), str(files[1])), None)
+        return self._models[set_name]
+
+    def synthesize(self, text, lang, voice, path):
+        import soundfile
+
+        model, g2p = self._load(self.model_set(voice))
+        if g2p is not None:
+            phonemes, _ = g2p(text)
+            samples, rate = model.create(phonemes, voice=voice, speed=1.0, is_phonemes=True)
+        else:
+            samples, rate = model.create(text, voice=voice, speed=1.0,
+                                         lang=self.PREFIX_LANG.get(voice[0], "en-us"))
+        soundfile.write(str(path), samples, rate)
+
+
+class EdgeTtsEngine:
+    """edge-tts: Microsoft Edge read-aloud voices. Needs network access."""
+
+    name = "edge-tts"
+    default_voice = "zh-TW-HsiaoChenNeural"
+    extension = "mp3"
+
+    def voice_for(self, lang):
+        return self.default_voice if is_zh_tw(lang) else None
+
+    def missing_models(self, voice):
+        return []
+
+    def synthesize(self, text, lang, voice, path):
+        import asyncio
+
+        import edge_tts
+
+        asyncio.run(edge_tts.Communicate(text, voice).save(str(path)))
+        if not Path(path).is_file() or Path(path).stat().st_size == 0:
+            raise RuntimeError("edge-tts returned no audio")
+
+
+ENGINES = {"silent": SilentEngine(), "kokoro": KokoroEngine(), "edge-tts": EdgeTtsEngine()}
+
+PUBLISHING_PRESETS = ("youtube", "short")
+
+ACCENT_NOTICE = ("edge-tts is unreachable, so zh-TW narration uses Kokoro Chinese "
+                 "(voice zf_001) with a mainland Mandarin accent, not a Taiwan accent.")
+PUBLISHING_NOTICE = ("edge-tts uses an unofficial Microsoft endpoint with no service terms "
+                     "for publishing; for a {preset} video consider Kokoro instead "
+                     "(Apache-2.0, offline, mainland Mandarin accent for Chinese): "
+                     "set \"engine\": \"kokoro\" in the storyboard.")
+
+
+def is_zh_tw(lang):
+    parts = lang.lower().split("-")
+    return parts[0] == "zh" and ("tw" in parts or "hant" in parts)
+
+
+def network_offline():
+    """True when the environment states that the network is unavailable."""
+    return os.environ.get("VIDEO_EXPLAINER_OFFLINE") == "1"
+
+
+def edge_tts_reachable():
+    """Real reachability check (used by preview and final, never by plan)."""
+    return doctor.probe_network(quick=False)["available"]
+
+
+def select_engine(board, offline=False):
+    """Apply the selection rules. Assumes validate() already passed.
+
+    Returns {"name", "voice", "reason", "fallback", "notices"}:
+      1. A user-named engine and/or voice wins (no automatic fallback).
+      2. zh-TW -> edge-tts; when offline -> Kokoro Chinese with an accent notice.
+      3. Any other language -> Kokoro when it has a voice for it.
+      4. Otherwise CheckFailed (exit 1).
+    edge-tts with a publishing preset adds a notice that offers Kokoro.
+    """
+    lang = board["lang"]
     choice = board.get("engine")
     if isinstance(choice, dict):
         name, voice = choice.get("name"), choice.get("voice")
     else:
         name, voice = choice, None
-    if name is None:
-        prefix = board["lang"].lower().split("-")[0]
-        name = DEFAULT_ENGINES.get(board["lang"].lower(), DEFAULT_ENGINES.get(prefix))
-        if name is None:
-            name = "silent"
-            notices.append(f"No narration engine is available for '{board['lang']}' yet; "
-                           "using the silent engine (no speech).")
-    engine = ENGINES[name]
-    return engine, voice or engine.default_voice, notices
+    notices, fallback = [], None
+    if name is not None:
+        reason = "user override"
+        voice = voice or ENGINES[name].voice_for(lang)
+        if voice is None and name != "silent":
+            raise CheckFailed([f"engine {name!r} has no default voice for {lang!r}; "
+                               "name one in the storyboard: "
+                               f"\"engine\": {{\"name\": \"{name}\", \"voice\": \"...\"}}"])
+        if name == "edge-tts" and offline:
+            notices.append("edge-tts was requested but the network is marked offline; "
+                           "preview and final will fail until it is reachable.")
+    elif is_zh_tw(lang):
+        fallback = {"name": "kokoro", "voice": ENGINES["kokoro"].voice_for("zh")}
+        if offline:
+            name, voice = fallback["name"], fallback["voice"]
+            reason, fallback = "edge-tts unreachable, offline fallback for zh-TW", None
+            notices.append(ACCENT_NOTICE)
+        else:
+            name, voice, reason = "edge-tts", voice or ENGINES["edge-tts"].default_voice, \
+                "default for zh-TW"
+    elif ENGINES["kokoro"].voice_for(lang):
+        name, voice = "kokoro", voice or ENGINES["kokoro"].voice_for(lang)
+        reason = f"default for {lang}"
+    else:
+        known = ", ".join(["zh-TW"] + sorted(KokoroEngine.VOICES))
+        raise CheckFailed([f"no narration engine has a voice for {lang!r}; supported "
+                           f"languages: {known}. Or name an engine and voice in the "
+                           "storyboard 'engine' field."])
+    if name == "edge-tts" and board["preset"] in PUBLISHING_PRESETS:
+        notices.append(PUBLISHING_NOTICE.format(preset=board["preset"]))
+    return {"name": name, "voice": voice, "reason": reason, "fallback": fallback,
+            "notices": notices}
+
+
+def downloads_for(selection):
+    """Model files the selected engine still needs, as plan reports them."""
+    engine = ENGINES[selection["name"]]
+    return [{"name": name, "url": url, "size_mb": size_mb(size), "set": set_name}
+            for set_name, name, url, size in engine.missing_models(selection["voice"])]
+
+
+def download_notice(downloads):
+    total = round(sum(d["size_mb"] for d in downloads), 1)
+    sets = " ".join(dict.fromkeys(d["set"] for d in downloads))
+    return (f"Model files ({total} MB) are missing from {doctor.cache_dir()}. Ask the user "
+            f"before downloading, then run `make_video.py fetch-models {sets}`.")
 
 
 # ---------------------------------------------------------------- storyboard
@@ -272,9 +489,18 @@ def write_json(path, data):
 
 # ---------------------------------------------------------------- plan
 
+def engine_info(selection):
+    return {k: selection[k] for k in ("name", "voice", "reason", "fallback")}
+
+
 def cmd_plan(args):
     board = load_storyboard(args.storyboard)
-    engine, voice, notices = select_engine(board)
+    offline = args.offline or network_offline()
+    selection = select_engine(board, offline=offline)
+    notices = list(selection["notices"])
+    downloads = downloads_for(selection)
+    if downloads:
+        notices.append(download_notice(downloads))
     preset = PRESETS[board["preset"]]
     scenes = []
     for s in board["scenes"]:
@@ -291,8 +517,10 @@ def cmd_plan(args):
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
               "preset": preset_info(board["preset"]),
-              "engine": {"name": engine.name, "voice": voice},
-              "notices": notices, "scenes": scenes,
+              "engine": engine_info(selection),
+              "network": "offline" if offline else "not checked",
+              "notices": notices, "downloads": downloads,
+              "cache_dir": str(doctor.cache_dir()), "scenes": scenes,
               "estimated_total_seconds": total,
               "estimated_render_seconds": estimate_render_seconds(total, preset),
               "out_dir": str(out)}
@@ -323,18 +551,42 @@ def probe_seconds(path, stream=None):
     return float(out[0])
 
 
+class EngineFailed(Exception):
+    """A narration engine raised while synthesizing one scene."""
+
+
+def synthesize_cached(engine, voice, text, lang, cache):
+    """Speech audio for text, reused when the same text/engine/voice/lang was
+    synthesized before (preview -> final). Returns (path, reused)."""
+    key = hashlib.sha256(json.dumps([engine.name, voice, lang, text],
+                                    ensure_ascii=False).encode("utf-8")).hexdigest()[:24]
+    path = cache / f"{key}.{engine.extension}"
+    if path.is_file() and path.stat().st_size > 0:
+        return path, True
+    partial = cache / f"{key}.part.{engine.extension}"
+    try:
+        engine.synthesize(text, lang, voice, partial)
+    except RuntimeFailure:
+        raise
+    except Exception as exc:
+        partial.unlink(missing_ok=True)
+        raise EngineFailed(f"{type(exc).__name__}: {exc}") from exc
+    partial.replace(path)
+    return path, False
+
+
 def make_narration(board, engine, voice, work):
     """Synthesize, pad and measure each scene. Returns timing records."""
     audio = work / "audio"
-    audio.mkdir(parents=True, exist_ok=True)
+    cache = audio / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
     timing, start = [], 0.0
     for i, s in enumerate(board["scenes"]):
-        raw = audio / f"{i + 1:02d}-raw.{engine.extension}"
         norm = audio / f"{i + 1:02d}.wav"
         try:
-            engine.synthesize(s["narration"], board["lang"], voice, raw)
-        except Exception as exc:  # engine failures are runtime errors
-            raise RuntimeFailure(f"narration engine {engine.name} failed on {s['id']}: {exc}")
+            raw, reused = synthesize_cached(engine, voice, s["narration"], board["lang"], cache)
+        except EngineFailed as exc:
+            raise EngineFailed(f"narration engine {engine.name} failed on {s['id']}: {exc}")
         speech = probe_seconds(raw)
         run_tool(["ffmpeg", "-y", "-v", "error", "-i", str(raw), "-af",
                   f"apad=pad_dur={PAD_SECONDS}", "-ar", "48000", "-ac", "1", str(norm)])
@@ -342,6 +594,7 @@ def make_narration(board, engine, voice, work):
         timing.append({"id": s["id"], "start": round(start, 3),
                        "end": round(start + duration, 3), "duration": round(duration, 3),
                        "speech_seconds": round(speech, 3), "audio": str(norm),
+                       "audio_reused": reused,
                        # Reserved for word-level sync; v1 leaves it empty.
                        "words": []})
         start += duration
@@ -423,15 +676,50 @@ def render(board, functions, timing, width, height, fps, media_dir, name):
     return video, time.perf_counter() - t0
 
 
+def use_fallback(selection, why):
+    """Switch an edge-tts selection to its Kokoro Chinese fallback."""
+    fallback = selection["fallback"]
+    return {"name": fallback["name"], "voice": fallback["voice"],
+            "reason": f"{why}, offline fallback for zh-TW", "fallback": None,
+            "notices": [ACCENT_NOTICE]}
+
+
+def require_models(selection):
+    downloads = downloads_for(selection)
+    if downloads:
+        raise RuntimeFailure(download_notice(downloads))
+
+
+def narrate(board, selection, work):
+    """Narration for the selection; edge-tts falls back to Kokoro on failure."""
+    try:
+        require_models(selection)
+        return selection, *make_narration(board, ENGINES[selection["name"]],
+                                          selection["voice"], work)
+    except EngineFailed as exc:
+        if not selection["fallback"]:
+            raise RuntimeFailure(str(exc))
+        print(f"{exc}; falling back to Kokoro Chinese", file=sys.stderr)
+        selection = use_fallback(selection, "edge-tts failed")
+    require_models(selection)
+    try:
+        return selection, *make_narration(board, ENGINES[selection["name"]],
+                                          selection["voice"], work)
+    except EngineFailed as exc:
+        raise RuntimeFailure(str(exc))
+
+
 def prepare(args):
     board = load_storyboard(args.storyboard)
-    engine, voice, notices = select_engine(board)
+    selection = select_engine(board, offline=network_offline())
     functions = load_scenes_module(args.scenes, board)
     out = out_dir_for(board, args.out)
     work = out / "work"
     work.mkdir(exist_ok=True)
-    timing, narration = make_narration(board, engine, voice, work)
-    return board, engine, voice, notices, functions, out, work, timing, narration
+    if selection["fallback"] and not edge_tts_reachable():
+        selection = use_fallback(selection, "edge-tts unreachable")
+    selection, timing, narration = narrate(board, selection, work)
+    return board, selection, functions, out, work, timing, narration
 
 
 def public_timing(timing):
@@ -439,7 +727,7 @@ def public_timing(timing):
 
 
 def cmd_preview(args):
-    board, engine, voice, notices, functions, out, work, timing, narration = prepare(args)
+    board, selection, functions, out, work, timing, narration = prepare(args)
     preset = PRESETS[board["preset"]]
     scale = preset["preview_short_side"] / min(preset["width"], preset["height"])
     width = int(round(preset["width"] * scale / 2)) * 2
@@ -456,7 +744,7 @@ def cmd_preview(args):
                   "-frames:v", "1", str(frame)])
         scenes.append(dict(t, frame=str(frame)))
     result = {"ok": True, "command": "preview", "slug": board["slug"],
-              "engine": {"name": engine.name, "voice": voice}, "notices": notices,
+              "engine": engine_info(selection), "notices": selection["notices"],
               "preview": {"width": width, "height": height, "fps": preset["preview_fps"]},
               "scenes": scenes,
               "audio_seconds": round(sum(t["duration"] for t in timing), 3),
@@ -487,7 +775,7 @@ def write_script(path, board):
 
 
 def cmd_final(args):
-    board, engine, voice, notices, functions, out, work, timing, narration = prepare(args)
+    board, selection, functions, out, work, timing, narration = prepare(args)
     preset = PRESETS[board["preset"]]
     rendered, seconds = render(board, functions, timing, preset["width"], preset["height"],
                                preset["fps"], work / "media_final", "final.mp4")
@@ -501,7 +789,7 @@ def cmd_final(args):
     audio_seconds = probe_seconds(narration)
     video_seconds = probe_seconds(video, "v:0")
     result = {"ok": True, "command": "final", "slug": board["slug"],
-              "engine": {"name": engine.name, "voice": voice}, "notices": notices,
+              "engine": engine_info(selection), "notices": selection["notices"],
               "preset": preset_info(board["preset"]), "scenes": public_timing(timing),
               "video": str(video), "srt": str(srt), "script": str(script),
               "audio_seconds": round(audio_seconds, 3),
@@ -510,6 +798,39 @@ def cmd_final(args):
               "render_seconds": round(seconds, 1), "out_dir": str(out)}
     write_json(out / "final.json", result)
     return result
+
+
+# ---------------------------------------------------------------- models
+
+def cmd_fetch_models(args):
+    """Download model sets into the cache dir. Files already present are kept."""
+    unknown = [s for s in args.sets if s not in MODEL_SETS]
+    if unknown:
+        raise CheckFailed([f"unknown model set {s!r}; known sets: {', '.join(MODEL_SETS)}"
+                           for s in unknown])
+    target = doctor.cache_dir() / "kokoro"
+    files = []
+    for set_name in dict.fromkeys(args.sets):
+        for name, url, size in MODEL_SETS[set_name]:
+            path = find_model(name)
+            downloaded = path is None
+            if downloaded:
+                target.mkdir(parents=True, exist_ok=True)
+                path = target / name
+                partial = target / f"{name}.part"
+                print(f"downloading {name} ({size_mb(size)} MB) from {url}", file=sys.stderr)
+                try:
+                    with urllib.request.urlopen(url, timeout=60) as resp, \
+                            open(partial, "wb") as fh:
+                        shutil.copyfileobj(resp, fh, 1 << 20)
+                except OSError as exc:
+                    partial.unlink(missing_ok=True)
+                    raise RuntimeFailure(f"download of {name} failed: {exc}")
+                partial.replace(path)
+            files.append({"name": name, "set": set_name, "path": str(path),
+                          "size_mb": size_mb(path.stat().st_size), "downloaded": downloaded})
+    return {"ok": True, "command": "fetch-models", "cache_dir": str(doctor.cache_dir()),
+            "files": files}
 
 
 # ---------------------------------------------------------------- CLI
@@ -523,15 +844,23 @@ def main(argv=None):
     p = sub.add_parser("plan", help="validate and estimate (stdlib only)")
     p.add_argument("storyboard")
     p.add_argument("--out")
+    p.add_argument("--offline", action="store_true",
+                   help="state that edge-tts is unreachable (same as VIDEO_EXPLAINER_OFFLINE=1)")
     for name in ("preview", "final"):
         p = sub.add_parser(name)
         p.add_argument("storyboard")
         p.add_argument("scenes")
         p.add_argument("--out")
+    p = sub.add_parser("fetch-models", help="download model files into the user cache dir")
+    p.add_argument("sets", nargs="+", metavar="SET", help=", ".join(MODEL_SETS))
     args = parser.parse_args(argv)
-    handler = {"plan": cmd_plan, "preview": cmd_preview, "final": cmd_final}[args.command]
+    handler = {"plan": cmd_plan, "preview": cmd_preview, "final": cmd_final,
+               "fetch-models": cmd_fetch_models}[args.command]
     try:
-        result, code = handler(args), 0
+        # Libraries (phonemizer, ManimCE logging) may print; stdout carries
+        # only the final JSON object.
+        with contextlib.redirect_stdout(sys.stderr):
+            result, code = handler(args), 0
     except CheckFailed as exc:
         result, code = {"ok": False, "command": args.command, "errors": exc.errors}, 1
     except RuntimeFailure as exc:
