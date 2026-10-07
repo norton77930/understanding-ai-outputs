@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overflowing page</title>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); }
+.wide { width: 600px; height: 40px; background: var(--fg); }
+</style>
+</head>
+<body>
+<h1>Overflowing page</h1>
+<div class="wide"></div>
+<details><summary>More</summary><p>Hidden text.</p></details>
+</body>
+</html>
