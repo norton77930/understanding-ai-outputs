@@ -29,11 +29,12 @@ Every page follows these rules. `scripts/page_check.py` enforces the file rules.
 
 The rules above are a floor. They do not set a look.
 
-- Structure: a `<header>` with the `<h1>` title and a lead paragraph that states the main conclusion, then one `<section>` per key point. Start each section with an `<h2>` that states its point.
-- State colors: three custom properties, `--current`, `--changed` and `--done`, each with a dark-mode value. Use the same state color for the same state in every section.
+- Structure (recommended): the usual shape is a `<header>` with the `<h1>` title and a lead paragraph that states the main conclusion, then one `<section>` per key point that starts with an `<h2>` stating its point. The topic may call for another shape. Every key point still gets explained.
+- State colors: use one color per state (for example current, changed, done), as a custom property with a dark-mode value. Keep the same color for the same state across the whole page.
 - Color marks state but is never the only cue. Add a label (`Step 2 of 4`, "Done"), a shape, a border or a font weight.
 - Use CSS transitions or animations for state changes (a cell that moves, a bar that grows, a part that fades). Show the change, not only its result.
 - Respect `prefers-reduced-motion: reduce`: turn transitions and animations off in that media query. Autoplay starts only when the reader presses a button.
+- Light and dark follow the system setting. A manual light/dark toggle is optional. If you add one, keep the system setting as the default, and never make the toggle the first `<button>` on the page: the render check clicks that button.
 
 ## Design
 
@@ -47,7 +48,7 @@ Some techniques help the reader understand. Use them where they fit the point, n
 
 ## Skeleton
 
-This skeleton is the required minimum, not a design. It passes `page_check.py`. Keep the head elements, the token names and the reduced-motion rule. Change the token values to fit your design, and keep a dark value for each. Build the page in `<main>`, and replace the placeholder button.
+This skeleton is the required minimum, not a design. It passes `page_check.py`. Keep the head elements and the reduced-motion rule. The token names are an example: rename, add or remove tokens and change their values to fit your design, and keep a dark value for each. Build the page in `<main>`, and replace the placeholder button.
 
 ```html
 <!doctype html>

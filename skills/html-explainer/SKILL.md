@@ -1,6 +1,6 @@
 ---
 name: html-explainer
-description: Build one self-contained interactive HTML page that explains a topic or a piece of AI output, with a step-through, slider, layer toggle or reveal the reader can use. Use ONLY when the user explicitly asks for an interactive page, a web explainer or an HTML demo, such as "make an interactive page that explains X", "turn this answer into an interactive web explainer" or "做一個互動網頁說明 X". Never use for diagrams, videos, STE text, websites or landing pages, app components (React, Vue), fixing existing HTML or CSS, or questions about HTML.
+description: Build one self-contained HTML page that explains a topic or a piece of AI output as an interactive, designed page, with animation where it helps. Use ONLY when the user explicitly asks for an interactive page, a web explainer, an HTML demo, or an explanation or answer in HTML, such as "make an interactive page that explains X", "explain X in HTML", "做一個互動網頁說明 X" or "用 HTML 解釋 X". Never use for diagrams, videos, STE text, websites or landing pages, app components (React, Vue), fixing existing HTML or CSS, questions about HTML, or converting Markdown or other content to HTML.
 ---
 
 # HTML explainer
@@ -19,7 +19,7 @@ Run every command from the user's project root. The default output folder is `ou
 
 ## Workflow
 
-1. **Plan.** List the key points of the topic, usually 3 to 6. If the user gives a list of points, use that list. Plan one section per point. Put the main conclusion first, in the lead, and start each section with its point. For each section, choose the pattern from `references/interaction-patterns.md` that makes the point clearer when the reader does something:
+1. **Plan.** List the key points of the topic. Let the topic decide how many: typically 3 to 6, more for a broad topic. If the user gives a list of points, use that list. The usual shape is a title, a lead that states the main conclusion, and one section per point that starts with its point. Use another shape if the topic calls for it, but explain every point. For each section, choose the pattern from `references/interaction-patterns.md` that makes the point clearer when the reader does something:
    - a process or algorithm: step-through
    - a number that changes a result: parameter slider
    - a structure of parts or layers: layer toggles

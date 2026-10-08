@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.
 - MIT license.
 - `html-explainer` skill: turns a topic or AI output into one self-contained interactive HTML page
-  (`out/html-explainer/<slug>/index.html`) with a step-through, slider, layer toggle or reveal. Includes the
+  (`out/html-explainer/<slug>/index.html`) with six interaction patterns (step-through, slider, layer toggles, reveal, predict-then-reveal, preset scenarios). Includes the
   `page_check.py` static checker (standard library, with unit tests), the `render_check.py` headless-browser check
   (screenshots for a layout check, no browser download), references for interaction patterns, the design baseline and
   both checks, and a 20-query trigger eval.
@@ -33,4 +33,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   The text names every point and no longer stays short at the cost of a point. Two new interaction patterns
   (predict-then-reveal, preset scenarios) and autoplay for the step-through. The design baseline adds visual
   hierarchy, state colors that are never the only cue, transitions and `prefers-reduced-motion` support, and replaces
-  the styled skeleton with a bare one so that the agent designs each page for its topic.
+  the styled skeleton with a bare one so that the agent designs each page for its topic; the page structure and
+  state color names are now recommendations, the topic decides the number of key points, and the description also
+  triggers on a request for an explanation "in HTML".

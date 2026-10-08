@@ -1,6 +1,6 @@
 # Interaction patterns
 
-A page has one section per key point. For each section, pick the pattern that lets the reader do the thing the point is about. Several patterns on one page are normal. A section can have no control when a picture and text show its point clearly.
+A page usually has one section per key point. For each section, pick the pattern that lets the reader do the thing the point is about. Several patterns on one page are normal. A section can have no control when a picture and text show its point clearly.
 
 | The point is ... | Pattern |
 | --- | --- |
@@ -422,7 +422,7 @@ Buttons load a prepared input: the best case, the worst case and an edge case. T
 
 ## Combine patterns on one page
 
-- Give each key point its own `<section>` with an `<h2>` that states the point. Put the main conclusion in the lead, above the first section.
+- The usual shape gives each key point its own `<section>` with an `<h2>` that states the point, and puts the main conclusion in the lead, above the first section. Use another shape if the topic calls for it.
 - Choose the pattern per section. One page can have a step-through, a slider and a predict-then-reveal.
 - Keep the state of each section in its own variables and its own `show()` function. Give each element a unique `id`, for example `bs-next` and `sort-next`.
 - Use the same term for one thing in every section.

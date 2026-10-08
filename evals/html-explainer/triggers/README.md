@@ -4,11 +4,11 @@ Checks that the skill description fires only on explicit requests for an interac
 
 ## Decisions
 
-- **Should trigger:** an explicit request to produce an interactive page that explains something: "interactive page", "web explainer", "HTML demo", "interactive webpage", "single-file interactive HTML page". The set covers a topic and a given passage of text as input, English and zh-TW phrasing (互動網頁, 可以互動的網頁, 互動式的網頁解說), and each interaction pattern (step-through, slider, layer toggles, a choose-and-see interaction).
+- **Should trigger:** an explicit request to produce an interactive page that explains something: "interactive page", "web explainer", "HTML demo", "single-file interactive HTML page", and Karpathy's phrasing of an explanation or answer "in HTML" ("explain X in HTML", "用 HTML 解釋 X"). The set covers a topic and a given passage of text as input, English and zh-TW phrasing (互動網頁, 互動式的網頁解說, 用 HTML 解釋), and each interaction pattern (step-through, slider, layer toggles, a choose-and-see interaction).
 - **Should not trigger:** requests for another explainer skill, and near-misses that share words with HTML or web pages:
   - another rung of the format ladder: a diagram, a video, STE text (ADR 0003: each explainer skill answers its own request)
   - a web page that is a product, not an explainer: a company landing page
-  - work on existing web code: fixing CSS, a JavaScript error on load, converting Markdown to HTML
+  - work on existing web code: fixing CSS, a JavaScript error on load, converting Markdown to HTML (an "HTML" near-miss: the user wants a format conversion, not an explanation)
   - an app component (React), even though it is interactive
   - HTML as a topic: a question about HTML tags
   - an ordinary step-by-step explanation with no format request
