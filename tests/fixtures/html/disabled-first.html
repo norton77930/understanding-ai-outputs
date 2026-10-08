@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disabled first button</title>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); }
+#inert { pointer-events: none; }
+</style>
+</head>
+<body>
+<h1>Disabled first button</h1>
+<button id="back" type="button" disabled>Back</button>
+<fieldset disabled><button id="inside" type="button">Inside</button></fieldset>
+<button id="inert" type="button">Inert</button>
+<button id="next" type="button">Next</button>
+<p id="out">Step 1</p>
+<script>
+document.getElementById("next").addEventListener("click", () => {
+  document.getElementById("out").textContent = "Step 2";
+});
+</script>
+</body>
+</html>

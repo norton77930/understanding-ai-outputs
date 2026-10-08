@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Throwing page</title>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); }
+</style>
+</head>
+<body>
+<h1>Throwing page</h1>
+<button id="go" type="button">Go</button>
+<script>
+throw new Error("render-check fixture error");
+</script>
+</body>
+</html>

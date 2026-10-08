@@ -1,7 +1,7 @@
 {
   "name": "understanding-ai-outputs",
   "version": "0.0.1",
-  "description": "Agent skills that turn LLM output into formats a human can understand faster, following Andrej Karpathy's post. Skills: ste-writing (relaxed Simplified Technical English style) and video-explainer (narrated explainer videos).",
+  "description": "Agent skills that turn LLM output into formats a human can understand faster, following Andrej Karpathy's post. Skills: ste-writing (relaxed Simplified Technical English style), html-explainer (self-contained interactive web pages) and video-explainer (narrated explainer videos).",
   "author": {
     "name": "Norton Deng",
     "url": "https://github.com/norton77930"
@@ -17,10 +17,13 @@
     "writing",
     "video",
     "manim",
+    "html",
+    "interactive",
     "skills"
   ],
   "skills": [
     "./skills/ste-writing",
-    "./skills/video-explainer"
+    "./skills/video-explainer",
+    "./skills/html-explainer"
   ]
 }

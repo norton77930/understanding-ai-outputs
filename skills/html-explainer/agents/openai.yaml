@@ -1,0 +1,3 @@
+interface:
+  display_name: "HTML Explainer"
+  short_description: "Turn a topic or AI output into a one-file interactive web page"
