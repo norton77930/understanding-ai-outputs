@@ -2,6 +2,44 @@
 
 Newest run first. The earlier run is kept below as history; its single-axis ratings are not comparable with the two-axis ratings of the next run.
 
+## Run 20261009-021002 (round 3: new topics, bespoke design guidance)
+
+2026-10-09. Model: claude CLI default. One run per topic and arm, workers 4, timeout 1200 s per agent run. Command: `python evals/html-explainer/run_eval.py --workers 4`. Skill state: `e854aff` (bare skeleton, "Design" section, math-consistency layout check). Full report: `evals/html-explainer/runs/20261009-021002/report.md` (git-ignored, local only).
+
+**Topics:** a new round-3 set (Monty Hall, LRU cache, base rate, pendulum), all zh-TW, approved 2026-10-09, chosen so the maintainer rates topics not seen in earlier rounds. Round 1-2 topics are in `topics/round1/`.
+
+### Automated metrics
+
+**Verdict (with-skill arm): PASS.**
+
+- with-skill: page_check 4/4, render_check 4/4, cost $2.79, 809 s agent time.
+- baseline: page_check 3/4 (missing-dark-mode on 02), render_check 4/4, cost $2.50, 782 s agent time.
+- Total: $5.28, 1591 s agent time; about 7 min wall time with 4 parallel runs.
+
+| Topic | Lang | Arm | page_check (issue rules) | render_check | Console / page errors | No overflow at 390 | Interaction | Size | Single file | HTML files | Turns | Cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 01-monty-hall | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 23.5 KB | yes | 1 | 17 | $0.69 | 214 s |
+| 01-monty-hall | zh-TW | baseline | PASS | PASS | 0 / 0 | PASS | button | 29.4 KB | yes | 1 | 18 | $0.80 | 288 s |
+| 02-lru-cache | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 21.0 KB | yes | 1 | 14 | $0.63 | 162 s |
+| 02-lru-cache | zh-TW | baseline | FAIL (missing-dark-mode) | PASS | 0 / 0 | PASS | button | 21.0 KB | yes | 1 | 2 | $0.35 | 92 s |
+| 03-base-rate | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 21.8 KB | yes | 1 | 16 | $0.68 | 194 s |
+| 03-base-rate | zh-TW | baseline | PASS | PASS | 0 / 0 | PASS | button | 22.9 KB | yes | 1 | 9 | $0.55 | 174 s |
+| 04-pendulum | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 27.7 KB | yes | 1 | 16 | $0.79 | 239 s |
+| 04-pendulum | zh-TW | baseline | PASS | PASS | 0 / 0 | PASS | button | 31.5 KB | yes | 1 | 12 | $0.79 | 229 s |
+
+### Maintainer ratings (blind, two axes)
+
+Open `evals/html-explainer/runs/20261009-021002/review.html`. Same procedure and axes as the run below.
+
+| Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
+|---|---|---|---|---|---|---|---|
+| 01-monty-hall | | | | | | | |
+| 02-lru-cache | | | | | | | |
+| 03-base-rate | | | | | | | |
+| 04-pendulum | | | | | | | |
+
+**Result:** <fill after the maintainer rating>
+
 ## Run 20261009-011139 (approved topics, two rating axes)
 
 2026-10-09. Model: claude CLI default. `claude` 2.1.294. One run per topic and arm, workers 4, timeout 1200 s per agent run, A/B seed 261113. Command: `python evals/html-explainer/run_eval.py --workers 4` (plugin dir: the `feat/html-explainer` worktree after #38). Full report: `evals/html-explainer/runs/20261009-011139/report.md` (git-ignored, local only).
