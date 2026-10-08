@@ -26,3 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `page_check.py` static checker (standard library, with unit tests), the `render_check.py` headless-browser check
   (screenshots for a layout check, no browser download), references for interaction patterns, the design baseline and
   both checks, and a 20-query trigger eval.
+
+### Changed
+
+- `html-explainer` skill: the page now has one section per key point (usually 3 to 6), each with a pattern chosen for that point.
+  The text names every point and no longer stays short at the cost of a point. Two new interaction patterns
+  (predict-then-reveal, preset scenarios) and autoplay for the step-through. The design baseline adds visual
+  hierarchy, state colors that are never the only cue, transitions and `prefers-reduced-motion` support.

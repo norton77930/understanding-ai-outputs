@@ -1,27 +1,30 @@
 # Interaction patterns
 
-Pick the pattern that lets the reader do the thing the concept is about. One good interaction is better than many weak ones. Combine two patterns only when the concept has two parts.
+A page has one section per key point. For each section, pick the pattern that lets the reader do the thing the point is about. Several patterns on one page are normal. A section can have no control when a picture and text show its point clearly.
 
-| The concept is ... | Pattern |
+| The point is ... | Pattern |
 | --- | --- |
 | a process, an algorithm, a sequence of states | Step-through |
 | a relation between a number and a result | Parameter slider |
 | a structure made of parts or layers | Layer toggles |
-| a question, a definition, extra detail | Reveal |
+| a definition or extra detail | Reveal |
+| a result the reader can guess first | Predict-then-reveal |
+| a behavior that depends on the input (best case, worst case, edge case) | Preset scenarios |
 
 Rules for every pattern:
 
-- Show the key idea before any interaction, in the first paragraph.
+- Show the point of the section before any interaction, in its first sentence.
 - The first state on load must already be meaningful (step 1, a default slider value, all layers on).
 - Show the current state in words as well as in the picture (`Step 2 of 4`, the slider value).
 - Use native controls. Do not build buttons from `<div>` elements.
-- `render_check.py` clicks the first visible, enabled `<button>`. Make sure that this button changes the page. For example, put "Next" before "Back".
+- When the point is about change, animate the state change with a CSS transition. Turn the transition off in a `prefers-reduced-motion: reduce` override.
+- `render_check.py` clicks the first visible, enabled `<button>` on the page. Make sure that this button changes the page. For example, put "Next" before "Back".
 
-Each example below is a complete page that passes `page_check.py`. They use a short version of the skeleton in `design-baseline.md`.
+Each example below is a complete page that passes `page_check.py`. They use a short version of the skeleton in `design-baseline.md`. On a real page, each example is one section.
 
 ## Step-through
 
-Next and Back buttons move through a list of states. Keep the states as data and draw them with one `show()` function.
+Next and Back buttons move through a list of states. Play steps forward on a timer and stops at the last state. Keep the states as data and draw them with one `show()` function. A CSS transition lifts the current cell, so the reader sees the change happen.
 
 ```html
 <!doctype html>
@@ -40,10 +43,14 @@ Next and Back buttons move through a list of states. Keep the states as data and
   button { font: inherit; padding: 0.4rem 0.9rem; background: var(--panel); color: var(--fg);
            border: 1px solid var(--border); border-radius: 0.4rem; }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-  #cells { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; list-style: none; }
-  #cells li { min-width: 2.6rem; padding: 0.4rem; text-align: center; border: 2px solid var(--border); border-radius: 0.3rem; }
-  #cells li.out { opacity: 0.35; }
-  #cells li.mid { border-color: var(--accent); font-weight: bold; }
+  #cells { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.8rem 0 0; list-style: none; }
+  #cells li { min-width: 2.6rem; padding: 0.4rem; text-align: center; border: 2px solid var(--border); border-radius: 0.3rem;
+              transition: opacity 0.3s, transform 0.3s, border-color 0.3s; }
+  #cells li.out { opacity: 0.35; text-decoration: line-through; }
+  #cells li.mid { border-color: var(--accent); font-weight: bold; transform: translateY(-0.5rem); }
+  @media (prefers-reduced-motion: reduce) {
+    #cells li { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -55,6 +62,7 @@ Next and Back buttons move through a list of states. Keep the states as data and
   <p id="note" aria-live="polite"></p>
   <button type="button" id="next">Next</button>
   <button type="button" id="back">Back</button>
+  <button type="button" id="play">Play</button>
 </main>
 <script>
   const values = [3, 8, 12, 17, 23, 31, 42, 56];
@@ -73,7 +81,9 @@ Next and Back buttons move through a list of states. Keep the states as data and
   });
   const next = document.getElementById("next");
   const back = document.getElementById("back");
+  const play = document.getElementById("play");
   let i = 0;
+  let timer = null;
   function show() {
     const s = steps[i];
     cells.forEach((c, k) => {
@@ -85,8 +95,23 @@ Next and Back buttons move through a list of states. Keep the states as data and
     next.disabled = i === steps.length - 1;
     back.disabled = i === 0;
   }
-  next.addEventListener("click", () => { i += 1; show(); });
-  back.addEventListener("click", () => { i -= 1; show(); });
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    play.textContent = "Play";
+  }
+  next.addEventListener("click", () => { stop(); i += 1; show(); });
+  back.addEventListener("click", () => { stop(); i -= 1; show(); });
+  play.addEventListener("click", () => {
+    if (timer) { stop(); return; }
+    if (i === steps.length - 1) { i = 0; show(); }
+    play.textContent = "Pause";
+    timer = setInterval(() => {
+      i += 1;
+      show();
+      if (i === steps.length - 1) stop();
+    }, 1200);
+  });
   show();
 </script>
 </body>
@@ -211,7 +236,7 @@ Checkboxes switch the parts of one picture on and off. Start with all layers on.
 
 ## Reveal
 
-`<details>` and `<summary>` hide an answer or extra detail until the reader asks. They need no script and work with the keyboard. Use them for "predict, then check" questions and for definitions.
+`<details>` and `<summary>` hide a definition or extra detail until the reader asks. They need no script and work with the keyboard.
 
 For a tap detail on a word or a part of a picture, use a `<button aria-expanded="false">` that shows a short note next to it. Do not use hover only: phones and keyboards have no hover.
 
@@ -221,7 +246,7 @@ For a tap detail on a word or a part of a picture, use a `<button aria-expanded=
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Predict, then check: binary search</title>
+<title>Terms in binary search</title>
 <style>
   :root { --bg: #fff; --fg: #1a1a1a; --accent: #0b62c4; --panel: #eef1f5; color-scheme: light dark; }
   @media (prefers-color-scheme: dark) {
@@ -236,17 +261,169 @@ For a tap detail on a word or a part of a picture, use a `<button aria-expanded=
 </head>
 <body>
 <main>
-  <h1>Predict, then check: binary search</h1>
-  <p>Binary search drops half of a sorted list at each check. Guess each answer, then open it.</p>
+  <h1>Terms in binary search</h1>
+  <p>Binary search uses two terms: the search range and the middle value. Open a term to see its meaning.</p>
   <details>
-    <summary>A sorted list has 1,000 values. How many checks are necessary at most?</summary>
-    <p>10. Each check halves the range: 1,000, 500, 250 and so on, down to 1 value.</p>
+    <summary>Search range</summary>
+    <p>The part of the list that can still hold the value. Each check makes it half as long.</p>
   </details>
   <details>
-    <summary>What happens if the list is not sorted?</summary>
-    <p>The search can drop the half that holds the value. Then it reports "not found" for a value that is in the list.</p>
+    <summary>Middle value</summary>
+    <p>The value in the center of the search range. The search compares it with the value it looks for.</p>
   </details>
 </main>
 </body>
 </html>
 ```
+
+## Predict-then-reveal
+
+The reader picks an answer first. Then the page shows the correct answer and why. Use one button per answer. Mark the result with a word ("Correct", "Not correct") as well as a color.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guess first: binary search</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --accent: #0b62c4; --panel: #eef1f5; --border: #c4cad3;
+          --done: #1b7a3a; --changed: #a04a00; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --fg: #e8eaed; --accent: #6fb1ff; --panel: #1f242b; --border: #3b424c;
+            --done: #6fd38d; --changed: #ffb26b; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem; }
+  .choices { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  button { font: inherit; padding: 0.4rem 0.9rem; background: var(--panel); color: var(--fg);
+           border: 2px solid var(--border); border-radius: 0.4rem; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #answer { border-left: 4px solid var(--border); padding-left: 0.8rem; }
+  #answer.right { border-color: var(--done); }
+  #answer.wrong { border-color: var(--changed); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Guess first: binary search</h1>
+  <p>Binary search drops half of a sorted list at each check. Guess the answer, then compare it with the result.</p>
+  <p>A sorted list has 1,000 values. How many checks are necessary at most?</p>
+  <div class="choices">
+    <button type="button" data-guess="10">10</button>
+    <button type="button" data-guess="100">100</button>
+    <button type="button" data-guess="500">500</button>
+  </div>
+  <p id="answer" aria-live="polite">Pick an answer.</p>
+</main>
+<script>
+  const answer = document.getElementById("answer");
+  document.querySelectorAll("[data-guess]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const right = b.dataset.guess === "10";
+      answer.className = right ? "right" : "wrong";
+      answer.textContent = (right ? "Correct. " : `Not correct: ${b.dataset.guess}. `) +
+        "The answer is 10. Each check halves the range: 1,000, 500, 250 and so on, down to 1 value.";
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+## Preset scenarios
+
+Buttons load a prepared input: the best case, the worst case and an edge case. The page runs the same code on each input and shows the result. Mark the loaded preset with `aria-pressed` and a visible style. Load a preset on start that is not the first button, so the first button changes the page.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insertion sort: best and worst case</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --accent: #0b62c4; --panel: #eef1f5; --border: #c4cad3; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --fg: #e8eaed; --accent: #6fb1ff; --panel: #1f242b; --border: #3b424c; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  button { font: inherit; padding: 0.4rem 0.9rem; background: var(--panel); color: var(--fg);
+           border: 2px solid var(--border); border-radius: 0.4rem; }
+  button[aria-pressed="true"] { border-color: var(--accent); font-weight: bold; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #list { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; list-style: none; }
+  #list li { min-width: 2.4rem; padding: 0.3rem; text-align: center; border: 2px solid var(--border); border-radius: 0.3rem; }
+  .track { background: var(--panel); border-radius: 0.3rem; }
+  #bar { height: 1.2rem; border-radius: 0.3rem; background: var(--accent); transition: width 0.4s; }
+  @media (prefers-reduced-motion: reduce) {
+    #bar { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Insertion sort: best and worst case</h1>
+  <p>Insertion sort is fast on a list that is almost sorted and slow on a reversed list. Load a list to compare.</p>
+  <div class="row">
+    <button type="button" data-preset="best">Best case: sorted</button>
+    <button type="button" data-preset="worst">Worst case: reversed</button>
+    <button type="button" data-preset="edge">Edge case: one pair swapped</button>
+    <button type="button" data-preset="mixed">Mixed order</button>
+  </div>
+  <ol id="list" aria-label="Input list"></ol>
+  <p id="result" aria-live="polite"></p>
+  <div class="track"><div id="bar"></div></div>
+</main>
+<script>
+  const presets = {
+    best: [1, 2, 3, 4, 5, 6, 7, 8],
+    worst: [8, 7, 6, 5, 4, 3, 2, 1],
+    edge: [1, 2, 3, 5, 4, 6, 7, 8],
+    mixed: [5, 2, 7, 1, 8, 3, 6, 4]
+  };
+  const most = 28;
+  function comparisons(input) {
+    const a = [...input];
+    let count = 0;
+    for (let i = 1; i < a.length; i += 1) {
+      let j = i;
+      while (j > 0) {
+        count += 1;
+        if (a[j - 1] <= a[j]) break;
+        [a[j - 1], a[j]] = [a[j], a[j - 1]];
+        j -= 1;
+      }
+    }
+    return count;
+  }
+  const buttons = document.querySelectorAll("[data-preset]");
+  function load(name) {
+    const input = presets[name];
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
+    document.getElementById("list").replaceChildren(...input.map((v) => {
+      const li = document.createElement("li");
+      li.textContent = v;
+      return li;
+    }));
+    const n = comparisons(input);
+    document.getElementById("result").textContent = `Insertion sort needs ${n} comparisons for this list of 8 values.`;
+    document.getElementById("bar").style.width = `${(n / most) * 100}%`;
+  }
+  buttons.forEach((b) => b.addEventListener("click", () => load(b.dataset.preset)));
+  load("mixed");
+</script>
+</body>
+</html>
+```
+
+## Combine patterns on one page
+
+- Give each key point its own `<section>` with an `<h2>` that states the point. Put the main conclusion in the lead, above the first section.
+- Choose the pattern per section. One page can have a step-through, a slider and a predict-then-reveal.
+- Keep the state of each section in its own variables and its own `show()` function. Give each element a unique `id`, for example `bs-next` and `sort-next`.
+- Use the same term for one thing in every section.
+- The first button on the page belongs to the first interactive section. Make it change the page.

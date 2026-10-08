@@ -47,7 +47,7 @@ Resources checked:
 
 `<a href>` links are not resources. `data:` URLs and `#` fragments are allowed.
 
-`stats.words` counts non-CJK words in the visible text. `stats.cjk_chars` counts CJK characters. Use them to keep the text short.
+`stats.words` counts non-CJK words in the visible text. `stats.cjk_chars` counts CJK characters. Use them to see how much text the page has; never cut a key point to lower them.
 
 Exit codes: 0 = every rule passed, 1 = at least one issue, 2 = usage or input error (missing file, not UTF-8, bad flag: a message on stderr, no JSON). An unexpected internal error also exits 2 and prints `{"file", "error", "pass": false}`.
 

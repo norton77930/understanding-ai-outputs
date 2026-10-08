@@ -11,21 +11,23 @@ Turn a topic, or an answer from this conversation, into one `index.html` file th
 
 - `scripts/page_check.py`: static check of the file rules. Standard library only.
 - `scripts/render_check.py`: loads the page in a headless browser and takes screenshots.
-- `references/interaction-patterns.md`: four patterns with complete examples. Read it before you write the page.
-- `references/design-baseline.md`: the page rules and a minimal skeleton.
+- `references/interaction-patterns.md`: six patterns with complete examples, and how to combine them. Read it before you write the page.
+- `references/design-baseline.md`: the page rules, the visual design and a skeleton.
 - `references/checks.md`: both commands, their JSON, exit codes and environment variables.
 
 Run every command from the user's project root. The default output folder is `out/html-explainer/<slug>/` under the current folder. Use another folder if the user names one. If git does not ignore `out/`, tell the user. Do not change `.gitignore` unasked. On Windows, set `PYTHONUTF8=1` so Chinese text stays intact.
 
 ## Workflow
 
-1. **Pattern.** Find the one thing the reader should do to understand the concept. Pick the pattern from `references/interaction-patterns.md`:
+1. **Plan.** List the key points of the topic, usually 3 to 6. If the user gives a list of points, use that list. Plan one section per point. Put the main conclusion first, in the lead, and start each section with its point. For each section, choose the pattern from `references/interaction-patterns.md` that makes the point clearer when the reader does something:
    - a process or algorithm: step-through
    - a number that changes a result: parameter slider
    - a structure of parts or layers: layer toggles
-   - a question or extra detail: reveal
+   - a definition or extra detail: reveal
+   - a result the reader can guess first: predict-then-reveal
+   - a behavior that depends on the input: preset scenarios
 
-   Use a second pattern only when the concept has a second part.
+   Several patterns on one page are normal. Use motion where the point is about change.
 2. **Page.** Write ONE file, `out/html-explainer/<slug>/index.html`, from the skeleton in `references/design-baseline.md`:
    - `<html lang>` in the conversation's language, a `<title>` and a viewport meta.
    - Colors as CSS custom properties, with a `prefers-color-scheme: dark` override. Set the `body` background.
@@ -49,8 +51,9 @@ Run every command from the user's project root. The default output folder is `ou
 
 ## Text
 
-Keep the text short. The interaction does the explaining. Apply these rules directly. Do not call another skill for them.
+The text names each point. The interaction demonstrates it. Apply these rules to each sentence directly. Do not call another skill for them.
 
+- Never cut a key point to save words. Keep the sentences short, not the page.
 - English: relaxed STE. Use short sentences (20 words or fewer for steps, 25 for descriptions), active voice, one idea per sentence and one term per concept.
 - Other languages: apply the STE principles: short sentences, active voice, one instruction per sentence, one term per concept.
 - These rules are inspired by ASD-STE100. They are not official and are not endorsed by ASD. Put no note about the style on the page.
