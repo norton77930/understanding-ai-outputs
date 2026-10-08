@@ -18,8 +18,9 @@ page_check.py (pass, issue rules, size, single file) and render_check.py
 (pass, console and page errors, overflow at 390 px, interaction found,
 screenshots). It copies the page and screenshots to
 evals/html-explainer/runs/<timestamp>/<topic>/<arm>/ and builds review.html:
-per topic the 390 and 1280 light screenshots of both arms side by side in a
-random A/B order (--seed). The A/B key is only in report.json.
+per topic the "Reader should understand" points, a two-axis rating table
+(understanding, interaction and presentation) and the 390 and 1280 light
+screenshots of both arms side by side in a random A/B order (--seed). The A/B key is only in report.json.
 
 See evals/html-explainer/README.md. Python standard library only.
 Exit code: 0 = PASS, 1 = FAIL, 2 = incomplete/error (with-skill arm gates).
@@ -243,38 +244,57 @@ section{background:#fff;border:1px solid #ccc;border-radius:6px;padding:1rem;mar
 .pair figure{margin:0}.pair img{width:100%;border:1px solid #999}
 .w390 img{max-width:390px}figcaption{font-weight:bold;margin:.5rem 0}
 .missing{color:#a00}
+table.rate{border-collapse:collapse;margin:.5rem 0}
+table.rate th,table.rate td{border:1px solid #999;padding:.4rem .8rem;min-width:6rem;text-align:left}
 """
+
+# Rating instructions, Traditional Chinese (Taiwan), English axis names in parentheses.
+REVIEW_INTRO = (
+    "<p>每個主題請比較頁面 A 和頁面 B。請打開每個頁面，實際操作它的互動。"
+    "A/B 的順序在每個主題都是隨機的，對照表只在 report.json。</p>"
+    "<p>每個頁面各打兩個分數，各為 1 到 5 分（1 = 很差，5 = 很好）：</p>"
+    "<ul><li><strong>理解（Understanding）</strong>：看完這個頁面後，"
+    "你對該主題「讀者應該理解」的各個重點理解了多少。</li>"
+    "<li><strong>互動與呈現（Interaction and presentation）</strong>：互動是否好用、"
+    "版面與視覺是否清楚好讀（手機與桌面都看）。</li></ul>"
+    "<p>最後選出該主題中較好的頁面：A、B 或平手（tie）。"
+    "把分數填進 RESULTS.md 的表格，之後再用 report.json 的 ab_key 對照 A、B 各是哪一組。</p>"
+)
 
 
 def render_review(entries, timestamp):
-    """Blind review page. entries: [{"id", "lang", "points", "shots": {"A"|"B": {"390"|"1280": path|None}},
-    "pages": {"A"|"B": path|None}}]. Only A and B labels appear, never arm names."""
+    """Blind review page, in Traditional Chinese (Taiwan). entries: [{"id", "lang", "points",
+    "shots": {"A"|"B": {"390"|"1280": path|None}}, "pages": {"A"|"B": path|None}}].
+    Only A and B labels appear, never arm names. Per topic: the points, the links, a two-axis
+    rating table (理解, 互動與呈現) for A and B, the better-page line, then the screenshots."""
     esc = html.escape
-    out = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
+    out = ["<!doctype html>", '<html lang="zh-TW"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width, initial-scale=1">',
-           f"<title>html-explainer blind review {esc(timestamp)}</title><style>{REVIEW_CSS}</style></head><body>",
-           f"<h1>html-explainer blind review ({esc(timestamp)})</h1>",
-           "<p>For each topic, compare page A and page B. Open each page to try its interaction. "
-           "Rate which page makes the points below easier to understand. "
-           "The A/B order is random per topic; the key is in report.json.</p>"]
+           f"<title>html-explainer 盲測評分 {esc(timestamp)}</title><style>{REVIEW_CSS}</style></head><body>",
+           f"<h1>html-explainer 盲測評分（{esc(timestamp)}）</h1>", REVIEW_INTRO]
     for e in entries:
-        out.append(f"<section><h2>{esc(e['id'])} ({esc(e['lang'])})</h2>")
+        out.append(f"<section><h2>{esc(e['id'])}（{esc(e['lang'])}）</h2>")
         if e["points"]:
-            out.append("<p>Reader should understand:</p><ul>"
+            out.append("<p>讀者應該理解（Reader should understand）：</p><ul>"
                        + "".join(f"<li>{esc(p)}</li>" for p in e["points"]) + "</ul>")
         links = []
         for label in ("A", "B"):
             page = e["pages"].get(label)
-            links.append(f'<a href="{esc(page)}">Open page {label}</a>' if page
-                         else f'<span class="missing">Page {label}: no page</span>')
+            links.append(f'<a href="{esc(page)}">開啟頁面 {label}</a>' if page
+                         else f'<span class="missing">頁面 {label}：沒有頁面</span>')
         out.append("<p>" + " · ".join(links) + "</p>")
+        out.append('<table class="rate"><tr><th></th><th>理解（Understanding），1-5</th>'
+                   "<th>互動與呈現（Interaction and presentation），1-5</th></tr>"
+                   + "".join(f"<tr><th>頁面 {label}</th><td></td><td></td></tr>" for label in ("A", "B"))
+                   + "</table>")
+        out.append("<p>較好的頁面（Better page）：A / B / 平手（tie）：______</p>")
         for width in ("390", "1280"):
-            out.append(f'<h3>{width} px, light</h3><div class="pair w{width}">')
+            out.append(f'<h3>{width} px，淺色模式</h3><div class="pair w{width}">')
             for label in ("A", "B"):
                 shot = e["shots"][label].get(width)
-                body = (f'<img src="{esc(shot)}" alt="Page {label} at {width} px">' if shot
-                        else '<p class="missing">no screenshot</p>')
-                out.append(f"<figure><figcaption>Page {label}</figcaption>{body}</figure>")
+                body = (f'<img src="{esc(shot)}" alt="頁面 {label}，{width} px">' if shot
+                        else '<p class="missing">沒有截圖</p>')
+                out.append(f"<figure><figcaption>頁面 {label}</figcaption>{body}</figure>")
             out.append("</div>")
         out.append("</section>")
     out.append("</body></html>")

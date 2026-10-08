@@ -17,7 +17,7 @@ Needs the `claude` CLI, Python 3.12 (standard library only), `uv`, and a browser
 
 `--plugin-dir` is both the plugin the with-skill arm loads and the source of `page_check.py` and `render_check.py`. It must contain `skills/html-explainer/SKILL.md`, and its `.claude-plugin/` manifest must expose the skill.
 
-The topics are in `topics/` (see `topics/README.md` for their review status).
+The topics are in `topics/` (see `topics/README.md` for their review status). All four are zh-TW. English output is not rated here; the trigger eval (`triggers/`) and the automated checks cover it.
 
 ## What one run does
 
@@ -26,7 +26,7 @@ The topics are in `topics/` (see `topics/README.md` for their review status).
    - `baseline`: `claude -p ...` with no plugin
 2. Find the newest `.html` file the agent left under its scratch folder (any depth). If there are several, the report lists them all and measures the newest.
 3. Run `page_check.py` and `render_check.py` from the plugin dir on that page, for both arms. Screenshots go to `runs/<timestamp>/<topic>/<arm>/screenshots/`. The page and the agent's final reply (`agent-reply.md`) are copied next to them.
-4. Build `runs/<timestamp>/review.html` for the blind rating: per topic, the 390 px and 1280 px light screenshots of both arms side by side, labeled only A and B in a random order per topic. The screenshots and pages are copied to `runs/<timestamp>/review/` under neutral names (`<topic>-A-390.png`, `<topic>-A.html`). The A/B key is only in `report.json` (`ab_key`).
+4. Build `runs/<timestamp>/review.html` for the blind rating, written in Traditional Chinese (Taiwan): per topic, the "Reader should understand" points, links to both pages, a rating table with the two axes for A and B, and the 390 px and 1280 px light screenshots of both arms side by side, labeled only A and B in a random order per topic. The screenshots and pages are copied to `runs/<timestamp>/review/` under neutral names (`<topic>-A-390.png`, `<topic>-A.html`). The A/B key is only in `report.json` (`ab_key`).
 5. Write `runs/<timestamp>/report.md` and `report.json`.
 
 `runs/` is git-ignored (`.gitignore` in this folder).
@@ -47,7 +47,7 @@ The topics are in `topics/` (see `topics/README.md` for their review status).
 
 Verdict (with-skill arm only; the baseline is reported, not gated): FAIL if `page_check` or `render_check` fails on any with-skill page, INCOMPLETE if one has no data (no page, or a check could not run), else PASS. Exit code 0 / 1 / 2.
 
-The maintainer's rating is manual and blind: open `review.html`, open each page A and B to try the interaction, and rate per topic which page makes the topic's "Reader should understand" points easier to understand. Fill the rating columns in `RESULTS.md`, then look up the key in `report.json`.
+The maintainer's rating is manual and blind: open `review.html`, open each page A and B to try the interaction, and rate each page 1-5 on two axes: (a) understanding (理解), how well the topic's "Reader should understand" points came across, and (b) interaction and presentation (互動與呈現). Then pick the better page per topic (A, B or tie). Fill the rating columns in `RESULTS.md`, then look up the key in `report.json`. `report.md` also gives cost and agent time per arm, which `RESULTS.md` carries into its summary.
 
 ## Isolation
 
@@ -62,7 +62,8 @@ Same flags as the ste-writing and video-explainer evals:
 ## Known limits
 
 - One run per topic and arm. Agent behavior varies between runs; one run is a sample, not proof.
-- The automated checks measure the file rules and the render, not whether the page explains well. That is the blind rating.
+- The automated checks measure the file rules and the render, not whether the page explains well or looks good. That is the two-axis blind rating.
+- All rated topics are zh-TW. English output is covered by the trigger eval and the automated checks only.
 - Full-page screenshots of long pages are tall; the review page scales the 1280 px shots to the column width.
 - The baseline agent may not know the 390 px or single-file rules. Its failures on them show what the skill adds; they do not gate the verdict.
 - Not covered here: the trigger eval (see `triggers/`).

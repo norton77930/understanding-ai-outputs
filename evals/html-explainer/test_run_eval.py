@@ -151,6 +151,23 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(agg["arms"]["baseline"]["page_check_pass"], 0)
 
 
+class ReportTest(unittest.TestCase):
+    def test_summary_line_per_arm_has_cost_and_agent_time(self):
+        arms = {arm: {"metrics": {"page_check_ok": True, "render_ok": True, "issue_rules": [],
+                                  "console_errors": 0, "page_errors": 0, "overflow_390": False,
+                                  "interaction": "button", "size_kb": 1.0, "single_file": True,
+                                  "render_error": None},
+                      "meta": {"cost_usd": 0.5, "num_turns": 3}, "seconds": 61.4, "errors": []}
+                for arm in run_eval.ARMS}
+        results = [{"id": "01-x", "lang": "zh-TW", "points": [], "arms": arms}]
+        meta = {"timestamp": "t", "model": None, "claude_version": "v", "plugin_dir": "p",
+                "scratch_root": "s", "review": "r", "seed": 1}
+        report = run_eval.render_report(meta, results, run_eval.aggregate(results))
+        for arm in run_eval.ARMS:
+            self.assertIn(f"- {arm}: page_check 1/1, render_check 1/1, cost $0.50, 61 s", report)
+        self.assertIn("Total cost $1.00, agent time 123 s", report)
+
+
 class ReviewPageTest(unittest.TestCase):
     def test_labels_only_a_and_b_and_escapes(self):
         entries = [{"id": "01-x", "lang": "en", "points": ["a < b"],
@@ -160,9 +177,31 @@ class ReviewPageTest(unittest.TestCase):
         html = run_eval.render_review(entries, "20260101-000000")
         self.assertIn("review/01-x-A-390.png", html)
         self.assertIn("a &lt; b", html)
-        self.assertIn("Page A", html)
+        self.assertIn("頁面 A", html)
         self.assertNotIn("with-skill", html)
         self.assertNotIn("baseline", html)
+
+    def _two_topics(self):
+        return [{"id": tid, "lang": "zh-TW", "points": points,
+                 "shots": {"A": {}, "B": {}}, "pages": {"A": None, "B": None}}
+                for tid, points in (("01-x", ["重點甲", "重點乙"]), ("02-y", ["重點丙"]))]
+
+    def test_page_is_zh_tw_and_states_both_axes_with_english_names(self):
+        html = run_eval.render_review(self._two_topics(), "t")
+        self.assertIn('lang="zh-TW"', html)
+        self.assertIn("理解（Understanding）", html)
+        self.assertIn("互動與呈現（Interaction and presentation）", html)
+        self.assertIn("1 到 5", html)
+        self.assertIn("平手（tie）", html)
+
+    def test_each_topic_has_its_points_and_a_rating_table_for_a_and_b(self):
+        html = run_eval.render_review(self._two_topics(), "t")
+        for point in ("重點甲", "重點乙", "重點丙"):
+            self.assertIn(point, html)
+        self.assertEqual(html.count('<table class="rate">'), 2)
+        self.assertEqual(html.count("較好的頁面（Better page）"), 2)
+        self.assertEqual(html.count("<tr><th>頁面 A</th>"), 2)
+        self.assertEqual(html.count("<tr><th>頁面 B</th>"), 2)
 
 
 if __name__ == "__main__":
