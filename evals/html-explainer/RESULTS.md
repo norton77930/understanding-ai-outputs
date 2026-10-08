@@ -27,10 +27,12 @@ Open `evals/html-explainer/runs/20261008-052926/review.html` (local, git-ignored
 
 | Topic | Rating A (1-5) | Rating B (1-5) | Better page (A / B / tie) | Notes | With-skill was (A / B, from key) |
 |---|---|---|---|---|---|
-| 01-learning-rate | | | | | |
-| 02-bubble-sort | | | | | |
-| 03-flexbox-space | | | | | |
-| 04-compound-interest | | | | | |
+| 01-learning-rate | 5 | 3 | A |  | B |
+| 02-bubble-sort | 5 | 3 | A |  | B |
+| 03-flexbox-space | 5 | 3 | A |  | B |
+| 04-compound-interest | 5 | 4 | A |  | B |
+
+**Result: the baseline page was rated better on all four topics** (baseline 5/5 each; with-skill 3, 3, 3, 4). The key shows A = baseline for every topic; with seed 852557 the per-topic shuffle happened to give the same order four times (checked: `ab_orders` reproduces it; about a 1-in-16 chance, not a bug). The automated checks favor the skill (dark mode), but the human rating does not. One visible difference: the with-skill pages are 1.6x to 2.6x smaller, so they may carry less explanation.
 
 ## Observations from this run
 
