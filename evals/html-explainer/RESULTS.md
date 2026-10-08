@@ -33,12 +33,12 @@ Open `evals/html-explainer/runs/20261009-021002/review.html`. Same procedure and
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-monty-hall | | | | | | | |
-| 02-lru-cache | | | | | | | |
-| 03-base-rate | | | | | | | |
-| 04-pendulum | | | | | | | |
+| 01-monty-hall | 5 | 5 | 5 | 5 | tie | about the same | A |
+| 02-lru-cache | 5 | 5 | 5 | 5 | tie | about the same | B |
+| 03-base-rate | 5 | 4 | 5 | 5 | B | content about the same; B has better animation | B |
+| 04-pendulum | 5 | 5 | 5 | 5 | tie | about the same | A |
 
-**Result:** <fill after the maintainer rating>
+**Result: parity, with one win for the skill.** With-skill 5/5 on both axes for all four topics. Baseline 5/5 on 01, 02 and 04 and 5/4 on 03. Better page: tie on 01, 02 and 04; the with-skill page on 03 (the maintainer: the content was about the same, the difference was the animation). The baseline page for 02 had no dark mode (page_check). Compared with rounds 1 and 2 (baseline preferred 4/4 both times), removing the styled skeleton and asking for a bespoke design closed the presentation gap. The topics are new in this round, so part of the change may come from the topics.
 
 ## Run 20261009-011139 (approved topics, two rating axes)
 
