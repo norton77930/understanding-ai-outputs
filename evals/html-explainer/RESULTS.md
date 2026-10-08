@@ -36,12 +36,12 @@ Open `evals/html-explainer/runs/20261009-011139/review.html` (local, git-ignored
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-learning-rate | | | | | | | |
-| 02-bubble-sort | | | | | | | |
-| 03-flexbox-space | | | | | | | |
-| 04-compound-interest | | | | | | | |
+| 01-learning-rate | 5 | 5 | 3 | 3 | A |  | B |
+| 02-bubble-sort | 5 | 4 | 5 | 5 | B |  | A |
+| 03-flexbox-space | 5 | 4 | 5 | 5 | B |  | A |
+| 04-compound-interest | 4 | 3 | 5 | 4 | B |  | A |
 
-**Result:** <fill after the maintainer rating>
+**Result: the baseline page was preferred on all four topics again, but the gap narrowed.** With-skill understanding 3, 5, 5, 4 (baseline 5, 5, 5, 5): a tie on 02 and 03. With-skill presentation 3, 4, 4, 3 (baseline 5, 5, 5, 4). The remaining gap is mostly presentation. In 01 the baseline page ran the three learning rates side by side at once, showed a live step calculation and ended with a summary; the with-skill page used the same plain card look as the design-baseline skeleton on every topic and drew a stray arc in section 2. The with-skill pages grew from 9-14 KB (first run) to 17-21 KB.
 
 ### Observations from this run
 
