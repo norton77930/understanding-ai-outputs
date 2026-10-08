@@ -6,12 +6,12 @@ Four topics for the html-explainer eval (issue #32, spec #29), all written for t
 
 | File | Topic | Language | Intended interaction |
 |---|---|---|---|
-| `01-learning-rate.md` | How the learning rate changes gradient descent | en | slider |
+| `01-learning-rate.md` | How the learning rate changes gradient descent | zh-TW | slider |
 | `02-bubble-sort.md` | Bubble sort step by step | zh-TW | step-through |
-| `03-flexbox-space.md` | How CSS flexbox distributes free space | en | toggles |
+| `03-flexbox-space.md` | How CSS flexbox distributes free space | zh-TW | toggles |
 | `04-compound-interest.md` | How compound interest grows over years | zh-TW | slider |
 
-The English sources are about 120–180 words. The Chinese sources are sized in characters (about 200–280). The "Reader should understand" bullets are the checklist for the maintainer's blind rating of which page explains better; they are written in the topic's language so the rater can check them against the page text directly. The interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The suggested numbers in the hints were calculated by hand and are there so the reviewer can check a page's values.
+All four topics are in zh-TW (spec #29 revision 2026-10-09), so the maintainer can rate every page; English output is covered by the trigger eval and the automated checks. Topics 01 and 03 were rewritten from their first English drafts. The sources are sized in characters (about 200–330). The "Reader should understand" bullets are the checklist for the maintainer's blind rating of which page explains better; they are written in the topic's language so the rater can check them against the page text directly. The interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The suggested numbers in the hints were calculated by hand and are there so the reviewer can check a page's values.
 
 ## Review checklist
 
