@@ -2,27 +2,34 @@
 
 Newest run first. The earlier run is kept below as history; its single-axis ratings are not comparable with the two-axis ratings of the next run.
 
-## Run <timestamp> (approved topics, two rating axes)
+## Run 20261009-011139 (approved topics, two rating axes)
 
-<date>. Model: <model>. `claude` <version>. One run per topic and arm, workers <n>, timeout <s> s per agent run, A/B seed <seed>. Command: `python evals/html-explainer/run_eval.py <options>`. Full report: `evals/html-explainer/runs/<timestamp>/report.md` (git-ignored, local only).
+2026-10-09. Model: claude CLI default. `claude` 2.1.294. One run per topic and arm, workers 4, timeout 1200 s per agent run, A/B seed 261113. Command: `python evals/html-explainer/run_eval.py --workers 4` (plugin dir: the `feat/html-explainer` worktree after #38). Full report: `evals/html-explainer/runs/20261009-011139/report.md` (git-ignored, local only).
 
 **Topics:** the approved set (issue #32), all zh-TW. English output is covered by the trigger eval and the automated checks, not by this rating.
 
 ### Automated metrics
 
-**Verdict (with-skill arm): <PASS/FAIL/INCOMPLETE>.**
+**Verdict (with-skill arm): PASS.**
 
-- with-skill: page_check <n>/4, render_check <n>/4, cost $<x>, <n> s agent time.
-- baseline: page_check <n>/4, render_check <n>/4, cost $<x>, <n> s agent time.
-- Total: $<x>, <n> s agent time; about <n> min wall time with <n> parallel runs.
+- with-skill: page_check 4/4, render_check 4/4, cost $2.77, 745 s agent time.
+- baseline: page_check 2/4 (missing-dark-mode on 02 and 03), render_check 4/4, cost $2.60, 862 s agent time.
+- Total: $5.36, 1607 s agent time; about 7 min wall time with 4 parallel runs.
 
 | Topic | Lang | Arm | page_check (issue rules) | render_check | Console / page errors | No overflow at 390 | Interaction | Size | Single file | HTML files | Turns | Cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| (fill from report.md) | | | | | | | | | | | | | |
+| 01-learning-rate | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 21.2 KB | yes | 1 | 24 | $0.85 | 233 s |
+| 01-learning-rate | zh-TW | baseline | PASS | PASS | 0 / 0 | PASS | button | 40.0 KB | yes | 1 | 21 | $1.13 | 403 s |
+| 02-bubble-sort | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 17.3 KB | yes | 1 | 20 | $0.63 | 146 s |
+| 02-bubble-sort | zh-TW | baseline | FAIL (missing-dark-mode) | PASS | 0 / 0 | PASS | button | 22.2 KB | yes | 1 | 3 | $0.41 | 139 s |
+| 03-flexbox-space | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 16.9 KB | yes | 1 | 18 | $0.66 | 188 s |
+| 03-flexbox-space | zh-TW | baseline | FAIL (missing-dark-mode) | PASS | 0 / 0 | PASS | button | 24.9 KB | yes | 1 | 2 | $0.48 | 129 s |
+| 04-compound-interest | zh-TW | with-skill | PASS | PASS | 0 / 0 | PASS | button | 17.2 KB | yes | 1 | 19 | $0.63 | 177 s |
+| 04-compound-interest | zh-TW | baseline | PASS | PASS | 0 / 0 | PASS | button | 22.1 KB | yes | 1 | 12 | $0.58 | 191 s |
 
 ### Maintainer ratings (blind, two axes)
 
-Open `evals/html-explainer/runs/<timestamp>/review.html` (local, git-ignored). Per topic it shows the "Reader should understand" points, links to page A and page B (try the interaction), and the 390 px and 1280 px light screenshots. Rate each page 1-5 on two axes, then pick the better page, and only then look up the key in `report.json` (`ab_key`) to fill the last column.
+Open `evals/html-explainer/runs/20261009-011139/review.html` (local, git-ignored). Per topic it shows the "Reader should understand" points, links to page A and page B (try the interaction), and the 390 px and 1280 px light screenshots. Rate each page 1-5 on two axes, then pick the better page, and only then look up the key in `report.json` (`ab_key`) to fill the last column.
 
 - **Understanding (理解):** how well you understood the topic's "Reader should understand" points after using the page.
 - **Presentation (互動與呈現, interaction and presentation):** how good the interaction, layout and visual design are.
