@@ -9,7 +9,7 @@
     {
       "name": "understanding-ai-outputs",
       "source": "./",
-      "description": "Explainer skills that turn LLM output into formats a human can understand faster (STE writing first; diagrams, web pages and videos later).",
+      "description": "Explainer skills that turn LLM output into formats a human can understand faster (STE writing and explainer videos; diagrams and web pages later).",
       "category": "writing",
       "keywords": [
         "explainer",

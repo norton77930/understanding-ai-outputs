@@ -23,7 +23,7 @@ jobs:
         run: claude plugin validate . --strict
 
   ste-check:
-    name: ste_check unit tests
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

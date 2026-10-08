@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Claude Code plugin manifest (`.claude-plugin/plugin.json`) and marketplace entry (`.claude-plugin/marketplace.json`).
 - `ste-writing` skill: relaxed Simplified Technical English writing and rewriting.
 - `ste_check.py`: a script for the optional self-check, with unit tests.
+- `video-explainer` skill: turns a topic or AI output into a short narrated explainer video (`video.mp4`, `video.srt`,
+  `script.md`) with ManimCE. Includes the `doctor.py` and `make_video.py` scripts (plan, preview, final,
+  fetch-models), the scene helper, Kokoro and edge-tts narration engines, the `explainer`, `youtube` and `short`
+  output presets, fallback scenes for render failures, references with a "Before you publish" section, and a
+  20-query trigger eval.
 - GitHub Actions workflow that runs strict plugin validation and the unit tests on pull requests and on pushes to `main`.
 - README with both install routes, the skill list and the format ladder.
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.

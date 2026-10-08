@@ -1,0 +1,11 @@
+{
+  "slug": "tiny-halving",
+  "lang": "en",
+  "preset": "explainer",
+  "engine": "silent",
+  "scenes": [
+    {"id": "s1", "narration": "Here are eight boxes in a row. We want to find one number."},
+    {"id": "s2", "narration": "Look at the middle box first. The number is too small, so drop the left half."},
+    {"id": "s3", "narration": "Now only four boxes are left. Each step cuts the work in half."}
+  ]
+}
