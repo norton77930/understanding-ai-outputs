@@ -20,7 +20,7 @@ Rules for every pattern:
 - When the point is about change, animate the state change with a CSS transition. Turn the transition off in a `prefers-reduced-motion: reduce` override.
 - `render_check.py` clicks the first visible, enabled `<button>` on the page. Make sure that this button changes the page. For example, put "Next" before "Back".
 
-Each example below is a complete page that passes `page_check.py`. They use a short version of the skeleton in `design-baseline.md`. On a real page, each example is one section.
+Each example below is a complete page that passes `page_check.py`. They show the mechanics with plain styles; do not copy their look (see "Design" in `design-baseline.md`). On a real page, each example is one section.
 
 ## Step-through
 

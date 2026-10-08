@@ -32,4 +32,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `html-explainer` skill: the page now has one section per key point (usually 3 to 6), each with a pattern chosen for that point.
   The text names every point and no longer stays short at the cost of a point. Two new interaction patterns
   (predict-then-reveal, preset scenarios) and autoplay for the step-through. The design baseline adds visual
-  hierarchy, state colors that are never the only cue, transitions and `prefers-reduced-motion` support.
+  hierarchy, state colors that are never the only cue, transitions and `prefers-reduced-motion` support, and replaces
+  the styled skeleton with a bare one so that the agent designs each page for its topic.
