@@ -21,10 +21,12 @@ Watch each video and check it against the topic's "Viewer should understand" bul
 
 | Topic | Video | Maintainer rating (1-5) | Notes |
 |---|---|---|---|
-| 01-binary-search | `runs/20261008-035608/01-binary-search/video.mp4` | | |
-| 02-gradient-descent | `runs/20261008-035608/02-gradient-descent/video.mp4` | | |
-| 03-git-merge-vs-rebase | `runs/20261008-035608/03-git-merge-vs-rebase/video.mp4` | | |
-| 04-http-request | `runs/20261008-035608/04-http-request/video.mp4` | | |
+| 01-binary-search | `runs/20261008-035608/01-binary-search/video.mp4` | 5 | |
+| 02-gradient-descent | `runs/20261008-035608/02-gradient-descent/video.mp4` | 5 | |
+| 03-git-merge-vs-rebase | `runs/20261008-035608/03-git-merge-vs-rebase/video.mp4` | 5 | |
+| 04-http-request | `runs/20261008-035608/04-http-request/video.mp4` | 5 | |
+
+Rated 2026-10-08: all four videos 5/5 (every "Viewer should understand" point came across).
 
 ## Observations from this run
 
