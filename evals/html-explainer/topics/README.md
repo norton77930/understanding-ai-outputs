@@ -1,6 +1,6 @@
 # Eval topics
 
-Status: DRAFT — awaiting maintainer review (issue #32, spec #29)
+Status: APPROVED 2026-10-09 (issue #32, spec #29)
 
 Four topics for the html-explainer eval (issue #32, spec #29), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with a request such as "Make an interactive page for the following." and compares the with-skill and baseline pages.
 
@@ -26,4 +26,4 @@ When you review or change a topic, check it for:
 
 ## Approval
 
-Not yet approved. Record the approval date and any changes made during review here.
+Approved by the maintainer on 2026-10-09. Change during review: topics 01 and 03 rewritten from English to zh-TW (spec #29 revision 2026-10-09), with the same facts, numbers and understanding points.

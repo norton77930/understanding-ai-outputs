@@ -2,7 +2,7 @@
 
 Run `20261008-052926` (2026-10-08). Model: claude CLI default (`claude` 2.1.293). One run per topic and arm, workers 4, timeout 1200 s per agent run, A/B seed 852557. Command: `python evals/html-explainer/run_eval.py --plugin-dir D:/tmp/export-feat-html-explainer --workers 4` (the plugin dir is an export of the `feat/html-explainer` branch tree, because the working tree's plugin manifest did not yet list html-explainer). Full report: `evals/html-explainer/runs/20261008-052926/report.md` (git-ignored, local only).
 
-**Topics are DRAFT.** The four topics in `topics/` are awaiting maintainer review (issue #32). This run used them as they were; re-run after approval if a topic changes.
+**Topics:** this run used the first drafts (01 and 03 in English). The approved topics (all zh-TW, issue #32) are used from the next run (#39).
 
 ## Automated metrics
 
