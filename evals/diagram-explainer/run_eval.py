@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the diagram-explainer eval: four topics, with-skill vs baseline, plus an LLM judge.
+"""Run the diagram-explainer eval: four topics, with-skill vs baseline, blind two-axis human rating.
 
 Usage:
     python evals/diagram-explainer/run_eval.py [--topics 01,03] [--model MODEL]
@@ -18,17 +18,22 @@ and issue count, node count (participants for sequence diagrams), label
 overruns, render success (render_diagram.py through `uv run`) and diagram type
 against the topic's expected type. Both scripts come from
 <plugin dir>/skills/diagram-explainer/scripts/.
-One judge call per topic (claude -p --tools "") sees the source and both
-diagrams in randomized A/B order (reproducible from --seed) and returns which
-explains faster plus an accuracy score 1-5 for each; the harness maps A/B back
-to arms. Outputs and report.md/report.json go to
-evals/diagram-explainer/runs/<timestamp>/ (git-ignored).
+Both arms are compared as PNG: render_diagram.py writes the PNG of a Mermaid
+diagram; a hand-written SVG (the baseline's usual answer) is screenshotted to
+PNG with headless Chrome or Edge (no uv, no Playwright; see svg_to_png).
+There is no LLM judge. The harness writes runs/<timestamp>/review.html, a blind
+review page: per topic the reader points, both images as 圖 A / 圖 B in a random
+order (reproducible from --seed, recorded), two 1-5 axes (理解, 呈現) and the
+better image. The key (which arm is A) is only in report.json (ab_key).
+Outputs and report.md/report.json go to evals/diagram-explainer/runs/<timestamp>/
+(git-ignored). The report gives cost and wall time per arm and in total.
 
 See evals/diagram-explainer/README.md. Python standard library only.
 Exit code: 0 = complete, 2 = some call or measurement failed (see errors).
 """
 
 import argparse
+import html
 import json
 import os
 import random
@@ -36,6 +41,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -70,22 +76,6 @@ ISOLATION_FLAGS = [
 ]
 ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Skill", "Glob", "Grep"]
 COPY_SUFFIXES = {".mmd", ".md", ".svg", ".png", ".json"}
-
-JUDGE_INSTRUCTIONS = """You are comparing two diagrams (Mermaid or SVG source code) that were \
-made to explain the same source text to a reader. Imagine each one rendered. \
-A side can hold more than one diagram; judge the side as a whole.
-
-Score each side for ACCURACY against the source, from 1 to 5:
-5 = every fact shown is correct and nothing is invented; 4 = minor imprecision only; \
-3 = one fact wrong, missing or invented that matters for the key points; \
-2 = several facts wrong or missing; 1 = misleading.
-Then say which side lets a reader understand the key points FASTER \
-("A", "B" or "tie"). Consider type choice, size, labels and clarity, not looks.
-
-Answer with ONE JSON object and nothing else, in this form:
-{"faster": "A" | "B" | "tie", "accuracy_a": <1-5>, "accuracy_b": <1-5>, "reason": "<one or two sentences>"}
-"""
-
 
 # --------------------------------------------------------------------------
 # Pure logic (unit-tested in test_run_eval.py)
@@ -126,11 +116,11 @@ def extract_mermaid(text):
 
 
 def choose_diagrams(saved_mmd, reply, saved_svg):
-    """Pick what to measure and judge. Returns (codes, from, format).
+    """Pick what to measure and review. Returns (codes, from, format).
 
     Saved .mmd files first, then the first ```mermaid block of the reply, then
-    saved .svg files (an agent that drew the diagram by hand; judged, but no
-    Mermaid metrics). ([], None, None) when there is nothing.
+    saved .svg files (an agent that drew the diagram by hand; converted to PNG
+    for the review, but no Mermaid metrics). ([], None, None) when there is nothing.
     """
     if saved_mmd:
         return list(saved_mmd), "file", "mermaid"
@@ -237,48 +227,63 @@ def extract_json_object(text):
     return None
 
 
-def parse_judge(text):
-    """Parse and validate the judge reply. Returns a dict or None if invalid."""
-    obj = extract_json_object(text or "")
-    if obj is None:
-        return None
-    try:
-        acc_a, acc_b = int(obj["accuracy_a"]), int(obj["accuracy_b"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    faster = obj.get("faster")
-    if isinstance(faster, str):
-        faster = faster.strip()
-        faster = "tie" if faster.lower() == "tie" else faster.upper()
-    if not (1 <= acc_a <= 5 and 1 <= acc_b <= 5) or faster not in ("A", "B", "tie"):
-        return None
-    return {"faster": faster, "accuracy_a": acc_a, "accuracy_b": acc_b, "reason": str(obj.get("reason", ""))}
-
-
-def map_judge_to_arms(judge, order):
-    """order = (arm shown as A, arm shown as B). Returns {"accuracy": {arm: int}, "faster", "reason"}."""
-    arm_a, arm_b = order
-    return {"accuracy": {arm_a: judge["accuracy_a"], arm_b: judge["accuracy_b"]},
-            "faster": {"A": arm_a, "B": arm_b, "tie": "tie"}[judge["faster"]],
-            "reason": judge.get("reason", "")}
-
-
-def judge_order(seed, topic_id):
-    """Randomized but reproducible A/B order for one topic."""
+def ab_order(seed, topic_id):
+    """Randomized but reproducible A/B order for one topic: (arm shown as A, arm shown as B)."""
     rng = random.Random(f"{seed}:{topic_id}")
     arms = list(ARMS)
     rng.shuffle(arms)
     return tuple(arms)
 
 
+def ab_orders(topic_ids, seed):
+    """{topic: [arm shown as A, arm shown as B]} for the review page; the key goes to report.json only."""
+    return {tid: list(ab_order(seed, tid)) for tid in topic_ids}
+
+
+def neutral_image_names(topic_id, label, count):
+    """File names for the review page that reveal nothing about the arm: <topic>-A.png, <topic>-A-2.png, ..."""
+    return [f"{topic_id}-{label}.png" if i == 1 else f"{topic_id}-{label}-{i}.png" for i in range(1, count + 1)]
+
+
+def svg_dimensions(svg_text, default=(1400, 1100), max_side=4000):
+    """Pixel size to screenshot an SVG at: width/height attributes, else the viewBox
+    (width 1400 keeps the aspect), else default. Percent and other units are ignored."""
+    head = re.search(r"<svg\b[^>]*>", svg_text, re.I | re.S)
+    tag = head.group(0) if head else ""
+
+    def number(attr):
+        m = re.search(rf"\s{attr}\s*=\s*[\"']\s*([0-9.]+)\s*(?:px)?\s*[\"']", tag, re.I)
+        return float(m.group(1)) if m else None
+
+    width, height = number("width"), number("height")
+    if not (width and height):
+        box = re.search(r"viewBox\s*=\s*[\"']\s*[-0-9.]+[\s,]+[-0-9.]+[\s,]+([0-9.]+)[\s,]+([0-9.]+)", tag, re.I)
+        if not box or float(box.group(1)) <= 0 or float(box.group(2)) <= 0:
+            return default
+        vw, vh = float(box.group(1)), float(box.group(2))
+        if width:
+            height = width * vh / vw
+        elif height:
+            width = height * vw / vh
+        else:
+            width, height = default[0], default[0] * vh / vw
+    return min(max(int(round(width)), 100), max_side), min(max(int(round(height)), 100), max_side)
+
+
+def browser_screenshot_cmd(browser, svg_path, png_path, size, profile_dir):
+    """Headless Chrome/Edge command that screenshots an SVG file at device scale 2."""
+    return [str(browser), "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+            "--force-device-scale-factor=2", f"--user-data-dir={profile_dir}",
+            f"--screenshot={png_path}", f"--window-size={size[0]},{size[1]}",
+            Path(svg_path).resolve().as_uri()]
+
+
 def aggregate(results):
-    """Totals per arm over topics, plus the judge's faster counts."""
+    """Totals per arm over topics: checker, render, size, images, cost and agent time."""
     arms = {}
     for arm in ARMS:
         entries = [r["arms"][arm] for r in results]
         metrics = [e.get("metrics") for e in entries]
-        scores = [e.get("accuracy") for e in entries]
-        known = [s for s in scores if s is not None]
         arms[arm] = {
             "checker_pass": sum(1 for m in metrics if m and m["checker_pass"] is True),
             "rendered": sum(1 for m in metrics if m and m["render_ok"] is True),
@@ -289,17 +294,14 @@ def aggregate(results):
             "issues": sum((m or {}).get("issues") or 0 for m in metrics),
             "label_overruns": sum((m or {}).get("label_overruns") or 0 for m in metrics),
             "nodes": [(m or {}).get("nodes") for m in metrics],
-            "accuracy_scores": scores,
-            "mean_accuracy": sum(known) / len(known) if known else None,
+            "images": sum(1 for e in entries if e.get("images")),
             "turns": sum((e.get("meta") or {}).get("num_turns") or 0 for e in entries),
             "cost_usd": round(sum((e.get("meta") or {}).get("cost_usd") or 0 for e in entries), 4),
             "seconds": round(sum(e.get("seconds") or 0 for e in entries), 1),
         }
-    faster = {"with-skill": 0, "baseline": 0, "tie": 0, "missing": 0}
-    for r in results:
-        faster[r.get("faster") or "missing"] += 1
-    return {"topics": len(results), "arms": arms, "faster": faster,
-            "judge_cost_usd": round(sum((r.get("judge_meta") or {}).get("cost_usd") or 0 for r in results), 4)}
+    return {"topics": len(results), "arms": arms,
+            "cost_usd": round(sum(a["cost_usd"] for a in arms.values()), 4),
+            "seconds": round(sum(a["seconds"] for a in arms.values()), 1)}
 
 
 def _yn(value):
@@ -314,54 +316,58 @@ def _num(value, fmt="{}"):
     return "n/a" if value is None else fmt.format(value)
 
 
+def arm_summary_line(arm, a, topics):
+    """One summary line per arm: the metrics, cost and agent time."""
+    return (f"- {arm}: checker pass {a['checker_pass']}/{topics}, rendered {a['rendered']}/{topics}, "
+            f"label overruns {a['label_overruns']}, images {a['images']}/{topics}, "
+            f"cost ${a['cost_usd']:.2f}, {a['seconds']:.0f} s")
+
+
 def render_report(meta, results, agg):
-    """Render report.md as a string."""
+    """Render report.md as a string. The A/B key is not in it (report.json only)."""
+    n = agg["topics"]
     out = [f"# diagram-explainer eval report ({meta['timestamp']})\n",
            f"- Model: {meta['model'] or 'claude CLI default'}",
            f"- claude version: {meta['claude_version']}",
            f"- Request: `{REQUEST}` + the topic's Source",
            f"- Plugin dir (with-skill arm, checker, renderer): `{meta['plugin_dir']}`",
            f"- Topics: {', '.join(r['id'] for r in results)}",
-           f"- Judge order seed: {meta['seed']}",
+           f"- Review page: `{meta.get('review')}` (A/B key in report.json only; seed {meta['seed']})",
            f"- Scratch root: `{meta['scratch_root']}`\n",
-           "## Totals per arm\n",
-           "| Arm | Checker pass | Issues | Label overruns | Rendered | Render skipped | Not Mermaid (SVG) | "
-           "Type as expected | Nodes per topic | Accuracy (judge) | Mean accuracy | Turns | Cost | Time |",
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    n = agg["topics"]
+           "## Summary per arm\n"]
+    out += [arm_summary_line(arm, agg["arms"][arm], n) for arm in ARMS]
+    wall = meta.get("wall_seconds")
+    out.append(f"- Total: cost ${agg['cost_usd']:.2f}, agent time {agg['seconds']:.0f} s"
+               + (f", wall time {wall:.0f} s" if wall is not None else "") + "\n")
+    out += ["## Totals per arm\n",
+            "| Arm | Checker pass | Issues | Label overruns | Rendered | Render skipped | Not Mermaid (SVG) | "
+            "Type as expected | Nodes per topic | Images (PNG) | Turns | Cost | Agent time |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for arm in ARMS:
         a = agg["arms"][arm]
         out.append(f"| {arm} | {a['checker_pass']}/{n} | {a['issues']} | {a['label_overruns']} | "
                    f"{a['rendered']}/{n} | {a['render_unavailable']} | {a['not_mermaid']} | "
-                   f"{a['type_ok']}/{n} | {a['nodes']} | "
-                   f"{a['accuracy_scores']} | {_num(a['mean_accuracy'], '{:.2f}')} | {a['turns']} | "
+                   f"{a['type_ok']}/{n} | {a['nodes']} | {a['images']}/{n} | {a['turns']} | "
                    f"${a['cost_usd']:.2f} | {a['seconds']:.0f} s |")
-    f = agg["faster"]
-    out.append(f"\nExplains faster (judge): with-skill {f['with-skill']}, baseline {f['baseline']}, "
-               f"tie {f['tie']}, missing {f['missing']}. Judge cost ${agg['judge_cost_usd']:.2f}.\n")
-    out.append("## Per topic\n")
+    out.append("\n## Per topic\n")
     out.append("| Topic | Arm | Diagrams (from) | Type (expected) | Checker | Issues | Nodes | Messages | "
-               "Label overruns | Render | Accuracy | Faster | Turns | Cost | Time |")
-    out.append("|" + "---|" * 15)
+               "Label overruns | Render | Images | Turns | Cost | Time |")
+    out.append("|" + "---|" * 14)
     for r in results:
         for arm in ARMS:
             e = r["arms"][arm]
             m = e.get("metrics") or arm_metrics([], [], [], r["expected_type"])
             meta_ = e.get("meta") or {}
-            faster = "" if not r.get("faster") else ("yes" if r["faster"] == arm else
-                                                     "tie" if r["faster"] == "tie" else "no")
             out.append(f"| {r['id']} | {arm} | {m['diagrams']} ({e.get('mermaid_from') or 'none'}) | "
                        f"{m['type'] or 'n/a'} ({'ok' if m['type_ok'] else 'expected ' + r['expected_type']}) | "
                        f"{_yn(m['checker_pass'])} | {_num(m['issues'])} | {_num(m['nodes'])} | "
                        f"{_num(m['messages'])} | {_num(m['label_overruns'])} | "
                        f"{'n/a' if m['type'] == 'svg' else _render_cell(m['render_ok'])} | "
-                       f"{_num(e.get('accuracy'))} | {faster} | {_num(meta_.get('num_turns'))} | "
+                       f"{len(e.get('images') or [])} | {_num(meta_.get('num_turns'))} | "
                        f"{_num(meta_.get('cost_usd'), '${:.2f}')} | {_num(e.get('seconds'), '{:.0f} s')} |")
     out.append("\n## Details\n")
     for r in results:
-        order = r.get("order") or ["?", "?"]
         out.append(f"### {r['id']} ({r['lang']}, expected `{r['expected_type']}`)\n")
-        out.append(f"- Judge (A = {order[0]}, B = {order[1]}): {r.get('reason') or 'no judge result'}")
         for arm in ARMS:
             e = r["arms"][arm]
             if e.get("note"):
@@ -387,6 +393,65 @@ def render_report(meta, results, agg):
     return "\n".join(out) + "\n"
 
 
+REVIEW_CSS = """
+body{font-family:system-ui,sans-serif;margin:1rem;background:#f4f4f4;color:#111}
+section{background:#fff;border:1px solid #ccc;border-radius:6px;padding:1rem;margin-bottom:2rem}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+.pair figure{margin:0}.pair img{width:100%;border:1px solid #999;margin-bottom:.5rem}
+figcaption{font-weight:bold;margin:.5rem 0}
+.missing{color:#a00}
+table.rate{border-collapse:collapse;margin:.5rem 0}
+table.rate th,table.rate td{border:1px solid #999;padding:.4rem .8rem;min-width:6rem;text-align:left}
+"""
+
+# Rating instructions, Traditional Chinese (Taiwan), English axis names in parentheses.
+REVIEW_INTRO = (
+    "<p>每個主題請比較圖 A 和圖 B。先看「讀者應該理解」的重點，再看圖。"
+    "A/B 的順序在每個主題都是隨機的，對照表只在 report.json。點圖可以開啟原尺寸。</p>"
+    "<p>每張圖各打兩個分數，各為 1 到 5 分（1 = 很差，5 = 很好）：</p>"
+    "<ul><li><strong>理解（Understanding）</strong>：看完這張圖後，"
+    "你對該主題「讀者應該理解」的各個重點理解了多少。</li>"
+    "<li><strong>呈現（Presentation）</strong>：版面、配色、文字大小與整體視覺是否清楚好讀。</li></ul>"
+    "<p>最後選出該主題中較好的圖：A、B 或平手。"
+    "把分數填進 RESULTS.md 的表格，之後再用 report.json 的 ab_key 對照 A、B 各是哪一組。</p>"
+)
+
+
+def render_review(entries, timestamp):
+    """Blind review page, in Traditional Chinese (Taiwan). entries: [{"id", "lang", "points",
+    "images": {"A"|"B": [relative png path, ...]}}]. Only the labels 圖 A and 圖 B appear, never
+    arm names. Per topic: the points, both images (each linked to the full-size file), a two-axis
+    rating table (理解, 呈現) for A and B and the better-image line."""
+    esc = html.escape
+    out = ["<!doctype html>", '<html lang="zh-TW"><head><meta charset="utf-8">',
+           '<meta name="viewport" content="width=device-width, initial-scale=1">',
+           f"<title>diagram-explainer 盲測評分 {esc(timestamp)}</title><style>{REVIEW_CSS}</style></head><body>",
+           f"<h1>diagram-explainer 盲測評分（{esc(timestamp)}）</h1>", REVIEW_INTRO]
+    for e in entries:
+        out.append(f"<section><h2>{esc(e['id'])}（{esc(e['lang'])}）</h2>")
+        if e["points"]:
+            out.append("<p>讀者應該理解（Reader should understand）：</p><ul>"
+                       + "".join(f"<li>{esc(p)}</li>" for p in e["points"]) + "</ul>")
+        out.append('<div class="pair">')
+        for label in ("A", "B"):
+            images = (e.get("images") or {}).get(label) or []
+            body = "".join(
+                f'<a href="{esc(img)}" target="_blank"><img src="{esc(img)}" alt="圖 {label}"></a>'
+                f'<div><a href="{esc(img)}" target="_blank">開啟原尺寸（圖 {label}'
+                + (f"，第 {i} 張" if len(images) > 1 else "") + "）</a></div>"
+                for i, img in enumerate(images, 1)) or '<p class="missing">沒有圖片</p>'
+            out.append(f"<figure><figcaption>圖 {label}</figcaption>{body}</figure>")
+        out.append("</div>")
+        out.append('<table class="rate"><tr><th></th><th>理解（Understanding），1-5</th>'
+                   "<th>呈現（Presentation），1-5</th></tr>"
+                   + "".join(f"<tr><th>圖 {label}</th><td></td><td></td></tr>" for label in ("A", "B"))
+                   + "</table>")
+        out.append("<p>較好（A / B / 平手）：______</p>")
+        out.append("</section>")
+    out.append("</body></html>")
+    return "\n".join(out) + "\n"
+
+
 # --------------------------------------------------------------------------
 # Running claude, the checker and the renderer
 # --------------------------------------------------------------------------
@@ -398,27 +463,6 @@ def build_cmd(claude_exe, arm, model, plugin_dir):
     if model:
         cmd += ["--model", model]
     return cmd
-
-
-def build_judge_cmd(claude_exe, model):
-    """Judge: same isolation, no plugin, no tools."""
-    cmd = [claude_exe, "-p"] + ISOLATION_FLAGS + ["--tools", ""]
-    if model:
-        cmd += ["--model", model]
-    return cmd
-
-
-def judge_prompt(topic, codes_a, codes_b, fmt_a="mermaid", fmt_b="mermaid"):
-    def side(codes):
-        if len(codes) == 1:
-            return codes[0].strip()
-        return "\n\n".join(f"--- diagram {i} ---\n{c.strip()}" for i, c in enumerate(codes, 1))
-    names = {"mermaid": "Mermaid source", "svg": "hand-written SVG source"}
-    points = "\n".join(f"- {p}" for p in topic["points"])
-    return (f"{JUDGE_INSTRUCTIONS}\n=== SOURCE ===\n{topic['source'].strip()}\n\n"
-            f"=== KEY POINTS A READER SHOULD GET ===\n{points}\n\n"
-            f"=== DIAGRAM A ({names[fmt_a]}) ===\n{side(codes_a)}\n\n"
-            f"=== DIAGRAM B ({names[fmt_b]}) ===\n{side(codes_b)}\n")
 
 
 def agent_env(tmp_dir):
@@ -483,6 +527,48 @@ def run_render(plugin_dir, path, out_dir, env):
     return {0: True, 1: False}.get(proc.returncode), data
 
 
+def find_browser():
+    """Chrome or Edge for the SVG screenshot: DIAGRAM_EVAL_BROWSER, then PATH, then the usual install paths."""
+    override = os.environ.get("DIAGRAM_EVAL_BROWSER")
+    if override and Path(override).is_file():
+        return override
+    for name in ("chrome", "google-chrome", "msedge", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    roots = [os.environ.get(k) for k in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+    for root in filter(None, roots):
+        for rel in ("Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
+            if (Path(root) / rel).is_file():
+                return str(Path(root) / rel)
+    for path in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"):
+        if Path(path).is_file():
+            return path
+    return None
+
+
+def svg_to_png(svg_path, png_path, tmp_dir):
+    """Screenshot a hand-written SVG to PNG with headless Chrome/Edge. Returns an error string or None."""
+    browser = find_browser()
+    if not browser:
+        return "no Chrome or Edge found (set DIAGRAM_EVAL_BROWSER); SVG not converted to PNG"
+    size = svg_dimensions(Path(svg_path).read_text(encoding="utf-8", errors="replace"))
+    Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    profile = tempfile.mkdtemp(prefix="svg-profile-", dir=tmp_dir)
+    Path(png_path).unlink(missing_ok=True)
+    try:
+        subprocess.run(browser_screenshot_cmd(browser, svg_path, png_path, size, profile),
+                       capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return f"browser did not finish within 120 s for {Path(svg_path).name}"
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
+    if not (Path(png_path).is_file() and Path(png_path).stat().st_size > 0):
+        return f"browser wrote no PNG for {Path(svg_path).name}"
+    return None
+
+
 def find_saved_diagrams(cwd, pattern="*.mmd"):
     """Files the agent saved under cwd (default *.mmd), in path order."""
     return sorted(p for p in Path(cwd).rglob(pattern) if p.is_file() and ".venv" not in p.parts)
@@ -502,7 +588,7 @@ def run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env):
     out = run_dir / topic["id"] / arm
     out.mkdir(parents=True, exist_ok=True)
     entry = {"reply": None, "meta": None, "mermaid_from": None, "codes": [], "checks": [], "renders": [],
-             "metrics": None, "accuracy": None, "seconds": None}
+             "metrics": None, "images": [], "seconds": None}
     errors = []
     started = time.monotonic()
     try:
@@ -526,7 +612,7 @@ def run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env):
     if entry["mermaid_from"] == "file":
         entry["files"] = [str(p.relative_to(cwd)) for p in saved_mmd or saved_svg]
     if entry["format"] == "svg":
-        entry["note"] = "no Mermaid: the agent drew SVG by hand; judged as SVG source, no Mermaid metrics"
+        entry["note"] = "no Mermaid: the agent drew SVG by hand; converted to PNG for the review, no Mermaid metrics"
     elif not entry["codes"]:
         errors.append(f"{arm}: no .mmd file, no ```mermaid block in the reply and no .svg file")
     renders = []
@@ -542,42 +628,49 @@ def run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env):
         entry["renders"].append(data)
     entry["metrics"] = arm_metrics(entry["codes"], entry["checks"], renders, topic["expected_type"],
                                    entry["format"] or "mermaid")
+    if entry["format"] == "svg":
+        for rel in entry.get("files") or []:
+            svg = out / "agent-files" / rel
+            png = svg.with_name(svg.stem + "-render.png")
+            problem = svg_to_png(svg, png, scratch_run / "tmp")
+            if problem:
+                errors.append(f"{arm}: {problem}")
+            else:
+                entry["images"].append(str(png))
+    else:
+        entry["images"] = [rd["png"] for rd in entry["renders"]
+                           if rd and rd.get("png") and Path(rd["png"]).is_file()]
     return entry, errors
 
 
 def process_topic(topic, args, claude_exe, run_dir, scratch_run):
     env = agent_env(scratch_run / "tmp")
     result = {"id": topic["id"], "lang": topic["lang"], "expected_type": topic["expected_type"],
-              "arms": {}, "faster": None, "reason": "", "order": None, "judge_meta": None, "errors": []}
+              "points": topic["points"], "arms": {}, "errors": []}
     for arm in ARMS:
         entry, errors = run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env)
         result["arms"][arm] = entry
         result["errors"] += errors
-    order = judge_order(args.seed, topic["id"])
-    result["order"] = list(order)
-    codes = [result["arms"][arm]["codes"] for arm in order]
-    if not all(codes):
-        result["errors"].append("judge skipped: an arm has no diagram")
-        return result
-    judge_cwd = scratch_run / topic["id"] / "judge"
-    judge_cwd.mkdir(parents=True, exist_ok=True)
-    prompt = judge_prompt(topic, codes[0], codes[1], *(result["arms"][arm]["format"] for arm in order))
-    for attempt in (1, 2):
-        try:
-            reply, result["judge_meta"] = run_claude(build_judge_cmd(claude_exe, args.model), prompt,
-                                                     judge_cwd, args.timeout, env)
-            (run_dir / topic["id"] / "judge.txt").write_text(reply + "\n", encoding="utf-8")
-            judge = parse_judge(reply)
-            if judge is None:
-                raise RuntimeError(f"judge reply is not valid JSON: {reply[:200]!r}")
-            mapped = map_judge_to_arms(judge, order)
-            for arm in ARMS:
-                result["arms"][arm]["accuracy"] = mapped["accuracy"][arm]
-            result["faster"], result["reason"] = mapped["faster"], mapped["reason"]
-            break
-        except Exception as exc:
-            result["errors"].append(f"judge attempt {attempt}: {exc}")
     return result
+
+
+def build_review(results, orders, run_dir, timestamp):
+    """Copy the PNGs under neutral names (<topic>-A.png) into review/ and write review.html."""
+    review = run_dir / "review"
+    review.mkdir(exist_ok=True)
+    entries = []
+    for r in results:
+        e = {"id": r["id"], "lang": r["lang"], "points": r["points"], "images": {}}
+        for label, arm in zip(("A", "B"), orders[r["id"]]):
+            sources = r["arms"][arm].get("images") or []
+            names = neutral_image_names(r["id"], label, len(sources))
+            for src, name in zip(sources, names):
+                shutil.copy2(src, review / name)
+            e["images"][label] = [f"review/{name}" for name in names]
+        entries.append(e)
+    path = run_dir / "review.html"
+    path.write_text(render_review(entries, timestamp), encoding="utf-8")
+    return path
 
 
 def load_topics(selected):
@@ -606,7 +699,7 @@ def main(argv=None):
                         help="plugin root for the with-skill arm and the scripts (default: repo root)")
     parser.add_argument("--dry-run", action="store_true", help="print the commands and exit; call nothing")
     parser.add_argument("--workers", type=int, default=4, help="parallel topics (default 4)")
-    parser.add_argument("--seed", default=None, help="seed for the judge A/B order (default: timestamp)")
+    parser.add_argument("--seed", default=None, help="seed for the review A/B order (default: timestamp)")
     parser.add_argument("--timeout", type=int, default=900, help="seconds per claude call (default 900)")
     args = parser.parse_args(argv)
     args.plugin_dir = args.plugin_dir.resolve()
@@ -621,13 +714,11 @@ def main(argv=None):
 
     if args.dry_run:
         print(f"env: {AGENT_ENV} + TMPDIR/TEMP/TMP={scratch_run / 'tmp'}")
+        print(f"hand-written SVG -> PNG with: {find_browser() or 'no Chrome/Edge found (set DIAGRAM_EVAL_BROWSER)'}")
         for t in topics:
             for arm in ARMS:
                 print(f"[{t['id']}] {arm} cwd: {scratch_run / t['id'] / arm}")
                 print(f"[{t['id']}] {arm}: {' '.join(build_cmd(claude_exe, arm, args.model, args.plugin_dir))}")
-            order = judge_order(args.seed, t["id"])
-            print(f"[{t['id']}] judge (A={order[0]}, B={order[1]}): "
-                  f"{' '.join(build_judge_cmd(claude_exe, args.model))}")
             print(f"[{t['id']}] stdin: {build_prompt(t)!r}")
         return 0
 
@@ -635,25 +726,31 @@ def main(argv=None):
     run_dir.mkdir(parents=True)
     (scratch_run / "tmp").mkdir(parents=True, exist_ok=True)
     print(f"Run folder: {run_dir}", flush=True)
+    started = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = [pool.submit(process_topic, t, args, claude_exe, run_dir, scratch_run) for t in topics]
         results = []
         for future in futures:
             r = future.result()
             results.append(r)
-            print(f"done {r['id']}: faster {r['faster']}"
-                  + (f" (errors: {len(r['errors'])})" if r["errors"] else ""), flush=True)
+            print(f"done {r['id']}" + (f" (errors: {len(r['errors'])})" if r["errors"] else ""), flush=True)
 
+    orders = ab_orders([r["id"] for r in results], args.seed)
+    review = build_review(results, orders, run_dir, timestamp)
     agg = aggregate(results)
     meta = {"timestamp": timestamp, "model": args.model, "seed": args.seed,
             "claude_version": claude_version(claude_exe), "plugin_dir": str(args.plugin_dir),
             "isolation_flags": ISOLATION_FLAGS, "allowed_tools": ALLOWED_TOOLS, "env": AGENT_ENV,
-            "scratch_root": str(scratch_run)}
+            "scratch_root": str(scratch_run), "review": str(review),
+            "wall_seconds": round(time.monotonic() - started, 1)}
     (run_dir / "report.md").write_text(render_report(meta, results, agg), encoding="utf-8")
     (run_dir / "report.json").write_text(
-        json.dumps({"meta": meta, "aggregate": agg, "topics": results}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps({"meta": meta, "aggregate": agg,
+                    "ab_key": {tid: {"A": o[0], "B": o[1]} for tid, o in orders.items()},
+                    "topics": results}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
     print(f"Report: {run_dir / 'report.md'}")
+    print(f"Review: {review}")
     errors = [(r["id"], e) for r in results for e in r["errors"]]
     for tid, e in errors:
         print(f"error [{tid}]: {e}", file=sys.stderr)
