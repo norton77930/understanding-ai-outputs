@@ -170,5 +170,153 @@ class StrictEvaluateTest(unittest.TestCase):
         self.assertEqual(run_eval.request_for("strict"), "Rewrite the following text in strict STE.")
 
 
+TOPIC = """- Language: zh-TW
+- Type: concept
+
+## Request
+
+用 STE 解釋：什麼是冪等性。
+
+## Context
+
+讀者是後端新手。
+
+## Reader should understand
+
+- 第一點。
+- 第二點。
+"""
+
+
+def explain_result(tid, skill_totals=None, base_totals=None, skill_cost=0.5, base_cost=0.25,
+                   skill_seconds=10.0, base_seconds=5.0, lang="zh-TW"):
+    return {"id": tid, "lang": lang, "points": ["p"], "arms": {
+        "with-skill": {"output": "S", "totals": skill_totals, "errors": [],
+                       "meta": {"cost_usd": skill_cost}, "seconds": skill_seconds},
+        "baseline": {"output": "B", "totals": base_totals, "errors": [],
+                     "meta": {"cost_usd": base_cost}, "seconds": base_seconds}}}
+
+
+class ExplainTopicTest(unittest.TestCase):
+    def test_parses_request_context_and_points(self):
+        topic = run_eval.parse_explain_topic("01-x", TOPIC)
+        self.assertEqual(topic, {"id": "01-x", "lang": "zh-TW", "request": "用 STE 解釋：什麼是冪等性。",
+                                 "context": "讀者是後端新手。", "points": ["第一點。", "第二點。"]})
+
+    def test_context_is_optional(self):
+        text = TOPIC.replace("## Context\n\n讀者是後端新手。\n\n", "")
+        self.assertIsNone(run_eval.parse_explain_topic("01-x", text)["context"])
+
+    def test_missing_request_is_an_error(self):
+        with self.assertRaises(ValueError):
+            run_eval.parse_explain_topic("01-x", "- Language: zh-TW\n")
+
+    def test_prompt_is_request_then_context(self):
+        topic = run_eval.parse_explain_topic("01-x", TOPIC)
+        self.assertEqual(run_eval.explain_prompt(topic), "用 STE 解釋：什麼是冪等性。\n\n讀者是後端新手。\n")
+        topic["context"] = None
+        self.assertEqual(run_eval.explain_prompt(topic), "用 STE 解釋：什麼是冪等性。\n")
+
+    def test_shipped_topics_parse_with_points(self):
+        topics = run_eval.load_explain_topics(None)
+        self.assertEqual(len(topics), 4)
+        for t in topics:
+            self.assertTrue(t["request"].startswith("用 STE 解釋："), t["id"])
+            self.assertTrue(3 <= len(t["points"]) <= 4, t["id"])
+
+
+class AbOrdersTest(unittest.TestCase):
+    def test_reproducible_and_complete(self):
+        ids = ["01-a", "02-b", "03-c", "04-d"]
+        orders = run_eval.ab_orders(ids, "seed")
+        self.assertEqual(orders, run_eval.ab_orders(ids, "seed"))
+        self.assertEqual(list(orders), ids)
+        for order in orders.values():
+            self.assertEqual(sorted(order), sorted(run_eval.ARMS))
+
+    def test_both_orders_occur(self):
+        orders = run_eval.ab_orders([f"{i:02d}" for i in range(20)], 1)
+        self.assertEqual({o[0] for o in orders.values()}, set(run_eval.ARMS))
+
+
+class ExplainAggregateTest(unittest.TestCase):
+    def test_sums_cost_and_time_per_arm(self):
+        agg = run_eval.explain_aggregate([explain_result("01"), explain_result("02", skill_cost=None)])
+        self.assertEqual(agg["with-skill"]["cost_usd"], 0.5)
+        self.assertEqual(agg["baseline"]["cost_usd"], 0.5)
+        self.assertEqual(agg["with-skill"]["seconds"], 20.0)
+        self.assertEqual(agg["with-skill"]["answers"], 2)
+
+    def test_metrics_pool_only_where_available(self):
+        results = [explain_result("01", totals(10, 1, 1), totals(10, 4)), explain_result("02")]
+        agg = run_eval.explain_aggregate(results)
+        self.assertEqual(agg["with-skill"]["sentences"], 10)
+        self.assertEqual(agg["with-skill"]["measured"], 1)
+        self.assertAlmostEqual(agg["baseline"]["over_limit_ratio"], 0.4)
+
+    def test_no_metrics_gives_none_ratios(self):
+        agg = run_eval.explain_aggregate([explain_result("01")])
+        self.assertIsNone(agg["with-skill"]["over_limit_ratio"])
+        self.assertEqual(agg["with-skill"]["measured"], 0)
+
+    def test_missing_answer_is_counted(self):
+        r = explain_result("01")
+        r["arms"]["baseline"]["output"] = None
+        self.assertEqual(run_eval.explain_aggregate([r])["baseline"]["answers"], 0)
+
+
+class ExplainReportTest(unittest.TestCase):
+    def test_reports_cost_time_and_missing_metrics_without_answers(self):
+        results = [explain_result("01-x", base_totals=totals(10, 2))]
+        results[0]["arms"]["with-skill"]["output"] = "secret answer text"
+        meta = {"timestamp": "t", "model": None, "claude_version": "v", "review": "review.html", "seed": "s"}
+        report = run_eval.render_explain_report(meta, results, run_eval.explain_aggregate(results))
+        self.assertIn("| with-skill | 1/1 | 0 | 0 | n/a | n/a | $0.50 | 10 s |", report)
+        self.assertIn("| 01-x | with-skill | metrics not available |", report)
+        self.assertIn("| 01-x | baseline | available | 10 | 2 |", report)
+        self.assertNotIn("secret answer text", report)
+
+
+class ReviewPageTest(unittest.TestCase):
+    def entries(self):
+        results = [explain_result("01-x"), explain_result("02-y")]
+        results[0]["arms"]["with-skill"]["output"] = "skill <b>answer</b>"
+        results[0]["arms"]["baseline"]["output"] = "base answer"
+        results[1]["arms"]["baseline"]["output"] = None
+        orders = {"01-x": ["baseline", "with-skill"], "02-y": ["with-skill", "baseline"]}
+        return run_eval.review_entries(results, orders)
+
+    def test_entries_follow_the_order(self):
+        e = self.entries()
+        self.assertEqual(e[0]["answers"], {"A": "base answer", "B": "skill <b>answer</b>"})
+        self.assertEqual(e[1]["answers"], {"A": "S", "B": None})
+        self.assertNotIn("arms", e[0])
+
+    def test_page_is_blind_and_escaped(self):
+        page = run_eval.render_review(self.entries(), "20261009-120000")
+        self.assertNotIn("with-skill", page)
+        self.assertNotIn("baseline", page)
+        self.assertIn("skill &lt;b&gt;answer&lt;/b&gt;", page)
+        self.assertIn('lang="zh-TW"', page)
+
+    def test_page_has_points_axes_and_better_line(self):
+        page = run_eval.render_review(self.entries(), "20261009-120000")
+        self.assertIn("<li>p</li>", page)
+        self.assertIn("理解（Understanding）", page)
+        self.assertIn("好讀（Readability）", page)
+        self.assertIn("較好", page)
+        self.assertIn("沒有回答", page)
+        self.assertLess(page.index("01-x"), page.index("02-y"))
+
+
+class ExplainSuffixTest(unittest.TestCase):
+    def test_suffix_goes_last_for_both_arms(self):
+        topic = {"request": "用 STE 解釋：X", "context": "背景", "points": []}
+        self.assertEqual(run_eval.explain_prompt(topic, "請用繁體中文回答。"),
+                         "用 STE 解釋：X\n\n背景\n\n請用繁體中文回答。\n")
+        self.assertEqual(run_eval.explain_prompt(topic), "用 STE 解釋：X\n\n背景\n")
+
+
 if __name__ == "__main__":
     unittest.main()
+

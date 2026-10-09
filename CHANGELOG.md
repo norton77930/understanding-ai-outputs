@@ -48,3 +48,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `diagram_check.py` reports size limits (about 20 nodes, 8 participants, 20 messages) as `warnings` that do not fail,
   checks the name line (5 words / 10 CJK characters) and the detail line (8 words / 16 CJK characters) of each label,
   and accepts `<br>`, title front matter, `classDef`, `class`, `linkStyle` and `:::` classes. `%%{init}` stays rejected.
+- `ste-writing` skill: new core rule "keep articles (the, a, an)", and "80% STE" or "soft STE" now means relaxed.
+  The eval adds an explain set of four zh-TW topics (`--set explain`) with a blind review page for a two-axis human rating.
