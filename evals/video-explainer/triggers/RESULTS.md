@@ -2,7 +2,19 @@
 
 Date: 2026-10-08. Model: `claude-opus-5-5`. Tool: skill-creator `run_eval.py` from the installed plugin version `054417d0fc68` (patched scratch copy, see below). 3 runs per query, threshold 0.5, 6 workers with one scratch directory per run, timeout 60 s.
 
-## Final result
+## Re-run after #40 (2026-10-09)
+
+The description dropped the word "short" (issue #40: deep mode runs 5 to 10 minutes). Same tool, settings and query set as below, `claude` 2.1.295, model `claude-opus-5-5`.
+
+**20/20 passed (0 errors).** All ten should-trigger queries fired 3/3, all ten should-not-trigger queries 0/3.
+
+Description under test:
+
+> Make a narrated explainer video (MP4 with captions and a script) of a topic or a piece of AI output, animated with ManimCE. Use ONLY when the user explicitly asks for a video, such as "make an explainer video of this", "turn this answer into an animated video", or "make a YouTube Short that explains X". Never use for diagrams, web pages, STE text, editing an existing video, or questions about video technology.
+
+## First run (2026-10-08)
+
+### Final result
 
 **20/20 passed (0 errors; limit is 2).** First run. The description was not tuned.
 
