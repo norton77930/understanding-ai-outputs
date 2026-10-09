@@ -1,15 +1,17 @@
 # Eval topics
 
-Status: approved by the maintainer on 2026-10-08 (issue #17)
+Status: approved by the maintainer on 2026-10-08 (issue #17). Revised for issue #41 (intent modes, baseline arm) and approved by the maintainer on 2026-10-09: Mode and Request lines added; the Sources of 01 (deep, about 850 characters, adds the guessing game, linear vs binary step counts and an unsorted counterexample) and 03 (standard, about 430 characters, adds commits A, B, D, E and A', B') expanded; 01's understanding points and visual hints updated.
 
-Four topics for the video-explainer eval (issue #17, spec #14), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into a video, the points a viewer should understand afterwards, and optional visual hints. The harness gives each one to an agent with a request such as "Make an explainer video of the following." and the topic's output preset.
+Four topics for the video-explainer eval (issue #17, spec #14), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into a video, the points a viewer should understand afterwards, and optional visual hints. The harness gives each one to an agent with the topic's `Request` line, " Use the <preset> output preset.", the pre-approval sentences and the Source. The `Mode` line (`quick`, `standard` or `deep`) is the intent mode the skill is expected to pick for that request; the mode decides the length (quick ~1 min, 3-6 scenes; standard 2-4 min, 6-15 scenes; deep 5-10 min, 15-30 scenes; the `short` preset is at most 60 s). The harness reports whether the storyboard's mode, scene count and video length fit; it does not gate on them. The zh-TW topics (01, 03) also run a baseline arm (the same request without the plugin).
 
-| File | Topic | Language | Output preset | Target length |
-|---|---|---|---|---|
-| `01-binary-search.md` | Binary search | zh-TW | `explainer` | 60–90 s |
-| `02-gradient-descent.md` | Gradient descent intuition | en | `explainer` | 60–90 s |
-| `03-git-merge-vs-rebase.md` | git merge vs rebase | zh-TW | `youtube` | 90–120 s |
-| `04-http-request.md` | The life of an HTTP request | en | `short` | 45–60 s (at most 60 s) |
+| File | Topic | Language | Output preset | Mode | Baseline arm |
+|---|---|---|---|---|---|
+| `01-binary-search.md` | Binary search | zh-TW | `explainer` | `deep` | yes |
+| `02-gradient-descent.md` | Gradient descent intuition | en | `explainer` | `quick` | no |
+| `03-git-merge-vs-rebase.md` | git merge vs rebase | zh-TW | `youtube` | `standard` | yes |
+| `04-http-request.md` | The life of an HTTP request | en | `short` | `quick` | no |
+
+Each file's header also has a `- Request:` line: one sentence in the topic's language, the user request both arms receive.
 
 The English sources are about 120–150 words. The Chinese sources are sized in characters (about 250–300). The "Viewer should understand" bullets are the checklist for the maintainer's 1–5 "did I understand it" rating; they are written in the topic's language so the rater can check them against the narration directly. The visual hints are optional guidance for the agent, not a storyboard, and are in English.
 

@@ -1,6 +1,7 @@
 - Language: en
 - Output preset: `explainer` (16:9, 720p)
-- Target length: 60–90 s, 4–6 scenes
+- Mode: `quick`
+- Request: Make a one-minute explainer video of the following.
 
 ## Source
 
