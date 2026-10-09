@@ -1,6 +1,6 @@
 # Explain topics
 
-Status: DRAFT, waiting for maintainer review (issue #48).
+Status: APPROVED by the maintainer on 2026-10-09, no changes (issue #48).
 
 Four topics for the explain use of ste-writing ("Explain X in STE."), all written for this repo (no copied text). The harness reads `explain/0*.md` when it runs with `--set explain`. For each topic it sends the same request to both arms: the `## Request` line, then the `## Context` section when the file has one. The with-skill and baseline answers go to a blind review page, where the maintainer rates them.
 
