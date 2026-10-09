@@ -1,0 +1,661 @@
+#!/usr/bin/env python3
+"""Check Mermaid diagram source: size, label length, fragile syntax.
+
+Usage:
+    python diagram_check.py [FILE|-] [--max-nodes N] [--max-participants N]
+                            [--max-messages N] [--max-label-words N]
+                            [--max-label-chars N] [--max-detail-words N]
+                            [--max-detail-chars N]
+
+Reads FILE (or stdin when FILE is omitted or "-") and prints one JSON object
+on stdout (UTF-8). Exit code: 0 = pass, 1 = check failed, 2 = usage or input
+error. Python standard library only.
+
+Output shape:
+    {"type": str | null,
+     "counts": {...},
+     "budgets": {"max_nodes", "max_participants", "max_messages",
+                 "max_label_words", "max_label_chars",
+                 "max_detail_words", "max_detail_chars"},
+     "labels": [{"text", "words", "chars", "detail_words", "detail_chars",
+                 "over"}],
+     "issues": [{"rule", "line", "message"}],
+     "warnings": [{"rule", "line", "message"}],
+     "pass": bool}
+
+pass is true when issues is empty. Warnings never fail the check.
+
+type is "flowchart" (flowchart and graph), "sequenceDiagram",
+"stateDiagram-v2" (stateDiagram and stateDiagram-v2), or the first word of an
+unsupported diagram (null when there is no diagram). counts depend on the type:
+    flowchart:       nodes, edges, subgraphs
+    sequenceDiagram: participants, messages
+    stateDiagram-v2: states (without [*]), transitions
+Unsupported types have an empty counts object.
+
+Labels: node, edge, subgraph, participant alias, message, state and
+transition texts. A label has a name line and an optional detail line,
+separated by <br> (also <br/> and <br />). words and chars measure the name
+line; detail_words and detail_chars measure the detail line (null without
+one). words counts Latin words, chars counts CJK characters (ideographs, kana,
+hangul). A label is over when a line is above its limit (exactly the limit is
+fine) or when it has more than two lines. HTML tags and entity codes are
+ignored when measuring.
+
+Size limits (max_nodes, max_participants, max_messages) are soft: a diagram
+above them gets a warning, not an issue.
+
+Rules (issue "rule" values):
+    unsupported-type       no diagram, or a type other than the three above
+    label-too-long         a label line is over its word or character limit,
+                           or the label has more than two lines
+    html-in-label          an HTML tag other than <br> in a label
+    click-callback         a "click" line
+    init-directive         a %%{init ...}%% directive, or config/theme in the
+                           front matter
+    style-url              a style, classDef or linkStyle line with url(
+    unbalanced-block       subgraph/end, sequence alt/opt/loop/par/rect/
+                           critical/break/box vs end, or state { } mismatch
+    unquoted-label         a flowchart node label with any of ( ) [ ] { } " | ; #
+                           that is not wrapped in double quotes
+
+Warnings (warning "rule" values; never a failure):
+    too-many-nodes         nodes (flowchart) or states (state) over --max-nodes
+    too-many-participants  over --max-participants
+    too-many-messages      over --max-messages
+
+Accepted style syntax: a title in the front matter, classDef, class, style,
+linkStyle and the ":::name" class suffix (flowchart and state diagram).
+
+Method (line based and APPROXIMATE, not a Mermaid parser): one statement per
+line (flowchart statements may also be split on ";", including the statements
+after the header in "flowchart LR; A-->B"); full-line "%%" comments and front
+matter are skipped; "A & B --> C" counts every edge; edge text such as
+"A--text-->B" is measured as a label, not counted as a node.
+"""
+
+import argparse
+import json
+import re
+import sys
+from dataclasses import dataclass, field
+
+EXIT_PASS, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
+
+DEFAULT_BUDGETS = {
+    "max_nodes": 20,
+    "max_participants": 8,
+    "max_messages": 20,
+    "max_label_words": 5,
+    "max_label_chars": 10,
+    "max_detail_words": 8,
+    "max_detail_chars": 16,
+}
+
+UNQUOTED_SPECIALS = "()[]{}\"|;#"
+_SPLIT_HINT = "split the diagram only if the layout check shows it is hard to read"
+
+_WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*")
+_HTML_TAG_RE = re.compile(r"</?[A-Za-z][^<>]*>")
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_CLASS_ANY_RE = re.compile(r":::\w+")
+_ENTITY_RE = re.compile(r"#\w+;")
+_HEADER_RE = re.compile(r"^(\S+)")
+_INIT_RE = re.compile(r"^%%\{\s*init(?:ialize)?\b")
+_FRONT_CONFIG_RE = re.compile(r"^\s*(?:config|theme|themeVariables|themeCSS)\s*:")
+_STYLE_RE = re.compile(r"^(?:style|classDef|linkStyle)\b")
+_CLICK_RE = re.compile(r"^click\b")
+_ID = r"\w+(?:-\w+)*"
+
+# Flowchart edges.
+# Edge text between the link start and end: "A--text-->B", "A-- text -->B",
+# "A-.text.->B", "A==text==>B". The text must not look like the rest of a plain
+# link (">", "-", "=", ".") or like the "x"/"o" arrow head ("--x B").
+_EDGE_TEXT_RE = re.compile(
+    r"[<xo]?(?:--|==|-\.)(?![>\-=.])(?![xo](?:\s|$))\s*(?P<t>.+?)\s*"
+    r"(?:-->|---|==>|===|\.->|\.-)")
+_EDGE_RE = re.compile(r"[<xo]?(?:-{2,}[>xo-]?|={2,}[>xo=]?|-\.+-[>xo]?|~{3,})")
+_EDGE_PIPE_RE = re.compile(r"\s*\|(?P<t>[^|]*)\|")
+_NODE_ID_RE = re.compile(_ID)
+_NODE_TRAIL_RE = re.compile(r"\s*(?:$|&|:::|[<xo]?(?:--|==|-\.|~~))")
+_CLASS_SUFFIX_RE = re.compile(r":::\w+")
+
+# Opener -> accepted closers, longest opener first.
+_SHAPES = (
+    ("(((", (")))",)), ("((", ("))",)), ("([", ("])",)), ("[[", ("]]",)),
+    ("[(", (")]",)), ("[/", ("/]", "\\]")), ("[\\", ("\\]", "/]")),
+    ("{{", ("}}",)), ("(", (")",)), ("[", ("]",)), ("{", ("}",)), (">", ("]",)),
+)
+
+_SUBGRAPH_TITLE_RE = re.compile(rf"^({_ID})\s*\[(.*)\]\s*$")
+_FLOW_HEADER_REST_RE = re.compile(r"^[\s;]*(?:(?:TB|TD|BT|RL|LR)(?=[\s;]|$))?[\s;]*(.*)$")
+
+# Sequence diagrams.
+_SEQ_BLOCK_RE = re.compile(r"^(?:alt|opt|loop|par|rect|critical|break|box)(?:\s|$)")
+_SEQ_SKIP_RE = re.compile(
+    r"^(?:else|and|option|autonumber|title|note|activate|deactivate|destroy|"
+    r"links?|properties|details)\b", re.IGNORECASE)
+_SEQ_PARTICIPANT_RE = re.compile(
+    r"^(?:create\s+)?(?:participant|actor)\s+([^\s@]+)(?:\s*@\{.*\})?(?:\s+as\s+(.+))?$")
+_SEQ_ID = r"[\w.]+(?:-[\w.]+)*"
+_SEQ_MESSAGE_RE = re.compile(
+    rf"^({_SEQ_ID})\s*(<<-->>|<<->>|-->>|->>|--x|-x|--\)|-\)|-->|->)\s*[+-]?\s*"
+    rf"({_SEQ_ID})\s*:\s*(.*)$")
+
+# State diagrams.
+_STATE_ID = r"\[\*\]|[\w.]+(?:-[\w.]+)*"
+_STATE_TRANSITION_RE = re.compile(
+    rf"^({_STATE_ID})\s*-->\s*({_STATE_ID})\s*(?::\s*(.*))?$")
+_STATE_DECL_RE = re.compile(
+    r'^state\s+(?:"([^"]*)"\s+as\s+)?([\w.]+(?:-[\w.]+)*)\s*(\{)?\s*(?:<<\w+>>)?\s*$')
+_STATE_DESC_RE = re.compile(r"^([\w.]+(?:-[\w.]+)*)\s*:\s*(.+)$")
+_STATE_NOTE_RE = re.compile(r"^note\b", re.IGNORECASE)
+
+
+class InputError(Exception):
+    pass
+
+
+# --- label measuring --------------------------------------------------------
+
+def _is_cjk(ch):
+    cp = ord(ch)
+    return (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+            or 0x3040 <= cp <= 0x30FF or 0xAC00 <= cp <= 0xD7AF
+            or 0xF900 <= cp <= 0xFAFF)
+
+
+def measure(text):
+    """Return (latin words, CJK characters) of a label."""
+    plain = _ENTITY_RE.sub(" ", _HTML_TAG_RE.sub(" ", text)).replace("`", " ")
+    chars = sum(1 for c in plain if _is_cjk(c))
+    latin = "".join(" " if _is_cjk(c) else c for c in plain)
+    return len(_WORD_RE.findall(latin)), chars
+
+
+class Report:
+    def __init__(self, budgets):
+        self.budgets = budgets
+        self.labels = []
+        self.issues = []
+        self.warnings = []
+        self._seen = set()
+
+    def issue(self, rule, line, message):
+        key = (rule, line, message)
+        if key not in self._seen:
+            self._seen.add(key)
+            self.issues.append({"rule": rule, "line": line, "message": message})
+
+    def warn(self, rule, line, message):
+        self.warnings.append({"rule": rule, "line": line, "message": message})
+
+    def label(self, text, line):
+        text = text.strip()
+        if not text:
+            return
+        lines = _BR_RE.split(text)
+        words, chars = measure(lines[0])
+        detail_words = detail_chars = None
+        if len(lines) > 1:
+            detail_words, detail_chars = measure(lines[1])
+        b = self.budgets
+        name_over = words > b["max_label_words"] or chars > b["max_label_chars"]
+        detail_over = len(lines) > 1 and (detail_words > b["max_detail_words"]
+                                          or detail_chars > b["max_detail_chars"])
+        over = name_over or detail_over or len(lines) > 2
+        self.labels.append({"text": text, "words": words, "chars": chars,
+                            "detail_words": detail_words, "detail_chars": detail_chars,
+                            "over": over})
+        if _HTML_TAG_RE.search(_BR_RE.sub(" ", text)):
+            self.issue("html-in-label", line,
+                       f"HTML tag in label {text!r}; use plain text (only <br> is allowed)")
+        if name_over:
+            self.issue("label-too-long", line,
+                       f"name line of {text!r} has {words} words and {chars} CJK "
+                       f"characters (limit {b['max_label_words']} words, "
+                       f"{b['max_label_chars']} characters)")
+        if detail_over:
+            self.issue("label-too-long", line,
+                       f"detail line of {text!r} has {detail_words} words and "
+                       f"{detail_chars} CJK characters (limit {b['max_detail_words']} "
+                       f"words, {b['max_detail_chars']} characters)")
+        if len(lines) > 2:
+            self.issue("label-too-long", line,
+                       f"label {text!r} has {len(lines)} lines; use a name line and "
+                       "at most one detail line")
+
+
+class Blocks:
+    """Open blocks (subgraph, alt, state {). Reports an unbalanced-block issue
+    for a closer with no opener and, at finish(), for an opener with no closer."""
+
+    def __init__(self, report, closer, opener_name):
+        self.report = report
+        self.closer = closer
+        self.opener_name = opener_name
+        self._open = []
+
+    def push(self, line, name=None):
+        self._open.append((line, name or self.opener_name))
+
+    def pop(self, line):
+        if self._open:
+            self._open.pop()
+        else:
+            self.report.issue("unbalanced-block", line,
+                              f"{self.closer} without a matching {self.opener_name}")
+
+    def finish(self):
+        for line, name in self._open:
+            self.report.issue("unbalanced-block", line,
+                              f"{name} without a matching {self.closer}")
+
+
+@dataclass
+class FlowState:
+    nodes: set = field(default_factory=set)
+    edges: int = 0
+
+
+# --- shared line rules --------------------------------------------------------
+
+def common_rules(stripped, line, report):
+    """Rules that apply to any line. Returns True when the line is consumed."""
+    if _INIT_RE.match(stripped):
+        report.issue("init-directive", line,
+                     "init directive; theme and config overrides do not render everywhere")
+        return True
+    if stripped.startswith("%%"):
+        return True
+    if _CLICK_RE.match(stripped):
+        report.issue("click-callback", line,
+                     "click line; callbacks and links are not supported everywhere")
+        return True
+    if _STYLE_RE.match(stripped):
+        if "url(" in stripped.lower():
+            report.issue("style-url", line, "url( in a style line; it may not render")
+        return True
+    return False
+
+
+def split_lines(text):
+    """Return ([(line number, stripped line)], front matter config line numbers).
+    Front matter and blank lines are left out of the first list."""
+    raw = text.splitlines()
+    items = []
+    front_issues = []
+    i = 0
+    if raw and raw[0].strip() == "---":
+        j = 1
+        while j < len(raw) and raw[j].strip() != "---":
+            if _FRONT_CONFIG_RE.match(raw[j]):
+                front_issues.append(j + 1)
+            j += 1
+        i = j + 1 if j < len(raw) else len(raw)
+    for n in range(i, len(raw)):
+        stripped = raw[n].strip()
+        if stripped:
+            items.append((n + 1, stripped))
+    return items, front_issues
+
+
+# --- flowchart ----------------------------------------------------------------
+
+def split_statements(line):
+    """Split on ";" outside quotes and brackets."""
+    parts, buf, depth, quote = [], [], 0, False
+    for ch in line:
+        if ch == '"':
+            quote = not quote
+        elif not quote:
+            if ch in "[({":
+                depth += 1
+            elif ch in "])}":
+                depth = max(0, depth - 1)
+            elif ch == ";" and depth == 0:
+                parts.append("".join(buf))
+                buf = []
+                continue
+        buf.append(ch)
+    parts.append("".join(buf))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def parse_shape(stmt, pos):
+    """Parse a node shape at stmt[pos]. Returns (label, quoted, end) or None."""
+    for opener, closers in _SHAPES:
+        if not stmt.startswith(opener, pos):
+            continue
+        start = pos + len(opener)
+        body = stmt[start:].lstrip()
+        if body.startswith('"'):
+            close_quote = body.find('"', 1)
+            if close_quote != -1:
+                after = body[close_quote + 1:].lstrip()
+                for closer in closers:
+                    if after.startswith(closer):
+                        end = len(stmt) - len(after) + len(closer)
+                        return body[1:close_quote], True, end
+        # Unquoted: first closer followed by end, "&", ":::" or an edge.
+        best = None
+        for closer in closers:
+            idx = stmt.find(closer, start)
+            while idx != -1:
+                if _NODE_TRAIL_RE.match(stmt, idx + len(closer)):
+                    if best is None or idx < best[0]:
+                        best = (idx, closer)
+                    break
+                idx = stmt.find(closer, idx + 1)
+        if best is None:
+            return stmt[start:], False, len(stmt)
+        return stmt[start:best[0]], False, best[0] + len(best[1])
+    return None
+
+
+def parse_flow_statement(stmt, line, state, report):
+    pos, n = 0, len(stmt)
+    groups, current = [], []
+    expect_node = True
+    while pos < n:
+        while pos < n and stmt[pos].isspace():
+            pos += 1
+        if pos >= n:
+            break
+        if expect_node:
+            m = _NODE_ID_RE.match(stmt, pos)
+            if not m:
+                break
+            node_id = m.group(0)
+            pos = m.end()
+            if stmt.startswith("@{", pos):
+                close = stmt.find("}", pos)
+                pos = n if close == -1 else close + 1
+            shape = parse_shape(stmt, pos) if pos < n else None
+            if shape:
+                label, quoted, pos = shape
+                report.label(label, line)
+                if not quoted and any(c in label for c in UNQUOTED_SPECIALS):
+                    bad = sorted({c for c in label if c in UNQUOTED_SPECIALS})
+                    report.issue("unquoted-label", line,
+                                 f"label {label.strip()!r} has {' '.join(bad)} outside "
+                                 "double quotes; wrap the label in double quotes")
+            state.nodes.add(node_id)
+            current.append(node_id)
+            cls = _CLASS_SUFFIX_RE.match(stmt, pos)
+            if cls:
+                pos = cls.end()
+            while pos < n and stmt[pos].isspace():
+                pos += 1
+            if pos < n and stmt[pos] == "&":
+                pos += 1
+                continue
+            groups.append(current)
+            current = []
+            expect_node = False
+        else:
+            m = _EDGE_TEXT_RE.match(stmt, pos)
+            if m:
+                report.label(m.group("t"), line)
+                pos = m.end()
+            else:
+                m = _EDGE_RE.match(stmt, pos)
+                if not m:
+                    break
+                pos = m.end()
+                pipe = _EDGE_PIPE_RE.match(stmt, pos)
+                if pipe:
+                    report.label(pipe.group("t"), line)
+                    pos = pipe.end()
+            expect_node = True
+    if current:
+        groups.append(current)
+    for left, right in zip(groups, groups[1:]):
+        state.edges += len(left) * len(right)
+
+
+def check_flowchart(items, report):
+    state = FlowState()
+    subgraph_ids = set()
+    blocks = Blocks(report, "end", "subgraph")
+    subgraphs = 0
+    for line, stripped in items:
+        if common_rules(stripped, line, report):
+            continue
+        word = stripped.split(None, 1)[0]
+        if word == "subgraph":
+            subgraphs += 1
+            blocks.push(line)
+            rest = stripped[len("subgraph"):].strip()
+            m = _SUBGRAPH_TITLE_RE.match(rest)
+            if m:
+                subgraph_ids.add(m.group(1))
+                title = m.group(2).strip()
+            else:
+                title = rest
+                subgraph_ids.add(rest.strip('"'))
+            report.label(title.strip('"'), line)
+            continue
+        if word == "end":
+            blocks.pop(line)
+            continue
+        if word in ("direction", "class", "accTitle", "accDescr"):
+            continue
+        for stmt in split_statements(stripped):
+            parse_flow_statement(stmt, line, state, report)
+    blocks.finish()
+    nodes = state.nodes - subgraph_ids
+    return {"nodes": len(nodes), "edges": state.edges, "subgraphs": subgraphs}
+
+
+# --- sequence diagram -----------------------------------------------------------
+
+def check_sequence(items, report):
+    participants = set()
+    messages = 0
+    blocks = Blocks(report, "end", "block")
+
+    for line, stripped in items:
+        if common_rules(stripped, line, report):
+            continue
+        if stripped == "end":
+            blocks.pop(line)
+            continue
+        if _SEQ_BLOCK_RE.match(stripped):
+            blocks.push(line, stripped.split(None, 1)[0])
+            continue
+        if _SEQ_SKIP_RE.match(stripped):
+            continue
+        m = _SEQ_PARTICIPANT_RE.match(stripped)
+        if m:
+            participants.add(m.group(1))
+            if m.group(2):
+                report.label(m.group(2), line)
+            continue
+        m = _SEQ_MESSAGE_RE.match(stripped)
+        if m:
+            participants.update((m.group(1), m.group(3)))
+            messages += 1
+            report.label(m.group(4), line)
+    blocks.finish()
+    return {"participants": len(participants), "messages": messages}
+
+
+# --- state diagram --------------------------------------------------------------
+
+def check_state(items, report):
+    states = set()
+    transitions = 0
+    braces = Blocks(report, "}", "state {")
+    in_note = False
+    for line, stripped in items:
+        if in_note:
+            if stripped.lower().startswith("end note"):
+                in_note = False
+            continue
+        if common_rules(stripped, line, report):
+            continue
+        if _STATE_NOTE_RE.match(stripped):
+            if ":" not in stripped:
+                in_note = True
+            continue
+        if stripped == "}":
+            braces.pop(line)
+            continue
+        if stripped.split(None, 1)[0] in ("class", "direction", "accTitle", "accDescr"):
+            continue
+        # "A:::done" marks a state with a class; it is not a description.
+        stripped = _CLASS_ANY_RE.sub("", stripped).strip()
+        m = _STATE_TRANSITION_RE.match(stripped)
+        if m:
+            transitions += 1
+            for sid in (m.group(1), m.group(2)):
+                if sid != "[*]":
+                    states.add(sid)
+            if m.group(3):
+                report.label(m.group(3), line)
+            continue
+        m = _STATE_DECL_RE.match(stripped)
+        if m:
+            states.add(m.group(2))
+            if m.group(1):
+                report.label(m.group(1), line)
+            if m.group(3):
+                braces.push(line)
+            continue
+        m = _STATE_DESC_RE.match(stripped)
+        if m:
+            states.add(m.group(1))
+            report.label(m.group(2), line)
+    braces.finish()
+    return {"states": len(states), "transitions": transitions}
+
+
+# --- driver ---------------------------------------------------------------------
+
+def detect_type(items):
+    """Return (kind, first word, index of the header item) for the first statement."""
+    if not items:
+        return None, None, -1
+    for idx, (line, stripped) in enumerate(items):
+        if stripped.startswith("%%"):
+            continue
+        word = _HEADER_RE.match(stripped).group(1)
+        base = word.split(";")[0]
+        if base in ("flowchart", "graph"):
+            return "flowchart", base, idx
+        if base == "sequenceDiagram":
+            return "sequenceDiagram", base, idx
+        if base in ("stateDiagram", "stateDiagram-v2"):
+            return "stateDiagram-v2", base, idx
+        return None, base, idx
+    return None, None, -1
+
+
+def analyze(text, budgets):
+    report = Report(budgets)
+    items, front_lines = split_lines(text)
+    for line in front_lines:
+        report.issue("init-directive", line,
+                     "config or theme in the front matter; overrides do not render everywhere")
+    # Directives before the header are still checked.
+    kind, first_word, idx = detect_type(items)
+    for line, stripped in items[:max(idx, 0)]:
+        common_rules(stripped, line, report)
+    counts = {}
+    if kind is None:
+        message = ("no diagram found" if first_word is None
+                   else f"unsupported diagram type {first_word!r}; "
+                        "use flowchart, sequenceDiagram or stateDiagram-v2")
+        line = items[idx][0] if idx >= 0 else 1
+        report.issue("unsupported-type", line, message)
+        type_name = first_word
+    else:
+        type_name = kind
+        body = items[idx + 1:]
+        if kind == "flowchart":
+            # "flowchart LR; A-->B": the statements after the header count too.
+            rest = _FLOW_HEADER_REST_RE.match(items[idx][1][len(first_word):]).group(1)
+            if rest:
+                body = [(items[idx][0], rest)] + body
+            counts = check_flowchart(body, report)
+            if counts["nodes"] > budgets["max_nodes"]:
+                report.warn("too-many-nodes", items[idx][0],
+                            f"{counts['nodes']} nodes (soft limit {budgets['max_nodes']}); "
+                            f"{_SPLIT_HINT}")
+        elif kind == "sequenceDiagram":
+            counts = check_sequence(body, report)
+            if counts["participants"] > budgets["max_participants"]:
+                report.warn("too-many-participants", items[idx][0],
+                            f"{counts['participants']} participants "
+                            f"(soft limit {budgets['max_participants']}); {_SPLIT_HINT}")
+            if counts["messages"] > budgets["max_messages"]:
+                report.warn("too-many-messages", items[idx][0],
+                            f"{counts['messages']} messages "
+                            f"(soft limit {budgets['max_messages']}); {_SPLIT_HINT}")
+        else:
+            counts = check_state(body, report)
+            if counts["states"] > budgets["max_nodes"]:
+                report.warn("too-many-nodes", items[idx][0],
+                            f"{counts['states']} states (soft limit {budgets['max_nodes']}); "
+                            f"{_SPLIT_HINT}")
+    return {
+        "type": type_name,
+        "counts": counts,
+        "budgets": dict(budgets),
+        "labels": report.labels,
+        "issues": sorted(report.issues, key=lambda i: i["line"]),
+        "warnings": report.warnings,
+        "pass": not report.issues,
+    }
+
+
+def read_input(path):
+    try:
+        if path is None or path == "-":
+            raw = sys.stdin.buffer.read()
+        else:
+            with open(path, "rb") as fh:
+                raw = fh.read()
+        return raw.decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"cannot read input {path or '-'}: {exc}")
+
+
+def _non_negative(value):
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {value!r}")
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more: {value!r}")
+    return number
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Check Mermaid source (size, labels, fragile syntax) and print JSON.")
+    parser.add_argument("file", nargs="?", default=None,
+                        help="Mermaid file, or - for stdin (default: stdin)")
+    for key, default in DEFAULT_BUDGETS.items():
+        parser.add_argument("--" + key.replace("_", "-"), dest=key, type=_non_negative,
+                            default=default, metavar="N",
+                            help=f"default {default}")
+    args = parser.parse_args(argv)  # argparse exits with 2 on usage errors
+    budgets = {key: getattr(args, key) for key in DEFAULT_BUDGETS}
+
+    try:
+        text = read_input(args.file)
+    except InputError as exc:
+        print(f"diagram_check: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    result = analyze(text, budgets)
+    out = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    sys.stdout.buffer.write(out.encode("utf-8"))
+    sys.stdout.buffer.flush()
+    return EXIT_PASS if result["pass"] else EXIT_FAIL
+
+
+if __name__ == "__main__":
+    sys.exit(main())

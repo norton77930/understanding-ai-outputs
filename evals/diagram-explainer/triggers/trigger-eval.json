@@ -1,0 +1,23 @@
+[
+  {"query": "draw me a diagram of how the OAuth 2.0 authorization code flow works, I keep mixing up who talks to whom", "should_trigger": true},
+  {"query": "can you show the TCP three-way handshake as a sequence diagram? client and server only", "should_trigger": true},
+  {"query": "請畫一張圖說明 git rebase 跟 git merge 的差別，給新進同事看", "should_trigger": true},
+  {"query": "turn your explanation above into a flowchart please: \"The CI job runs lint first. If lint fails, the job stops. If lint passes, it runs the tests, builds the image and deploys to staging.\"", "should_trigger": true},
+  {"query": "visualize how a DNS lookup goes from my laptop to the authoritative server as a picture, text is too hard to follow", "should_trigger": true},
+  {"query": "make a state diagram of the lifecycle of a Kubernetes pod, from Pending to Succeeded or Failed", "should_trigger": true},
+  {"query": "用流程圖畫出使用者下單之後，訂單從付款到出貨的流程", "should_trigger": true},
+  {"query": "give me a mermaid diagram of what runs inside a Docker host: the engine, containers, volumes and networks", "should_trigger": true},
+  {"query": "I don't get this answer. can you draw it as a diagram instead? \"A CDN edge server checks its cache. On a miss it asks the origin, stores the response and returns it to the user.\"", "should_trigger": true},
+  {"query": "sketch a chart of how data moves through our pipeline: Kafka topic, Flink job, S3 bucket, then Athena queries", "should_trigger": true},
+
+  {"query": "make a short explainer video with narration that shows how DNS caching works", "should_trigger": false},
+  {"query": "build an interactive HTML page that explains how a B-tree splits a node, with a button to insert keys", "should_trigger": false},
+  {"query": "rewrite this paragraph in STE: \"The configuration file should be edited by the administrator before the service is restarted.\"", "should_trigger": false},
+  {"query": "my mermaid diagram won't render, GitHub says Parse error on line 3. what's wrong?\n```\nflowchart TD\n  A[Start] --> B(Check (cache))\n  B --> end\n```", "should_trigger": false},
+  {"query": "what is a sequence diagram, and when should I use one instead of a flowchart?", "should_trigger": false},
+  {"query": "plot a bar chart of monthly revenue from sales.csv with matplotlib, one bar per month", "should_trigger": false},
+  {"query": "draw a cute cat sitting on a laptop keyboard, as SVG", "should_trigger": false},
+  {"query": "draw.io or Lucidchart for architecture diagrams? our team of 8 needs shared editing and Confluence export", "should_trigger": false},
+  {"query": "explain in words what this diagram says, I inherited it from a colleague:\n```mermaid\nsequenceDiagram\n  A->>B: lock\n  B-->>A: ok\n```", "should_trigger": false},
+  {"query": "explain step by step how garbage collection works in the JVM, I keep getting confused about generations", "should_trigger": false}
+]
