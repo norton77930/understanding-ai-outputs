@@ -18,7 +18,7 @@ Each step is its own skill. Install only the ones you need.
 | Skill | What it does | Status |
 | --- | --- | --- |
 | `ste-writing` | Writes or rewrites text in a relaxed Simplified Technical English style | Available in the next release |
-| `diagram-explainer` | Explains output as a diagram | Planned |
+| `diagram-explainer` | Turns a topic or an answer into one to three small Mermaid diagrams (flowchart, sequence, state) with a caption | Available in the next release |
 | `html-explainer` | Turns a topic or an answer into one self-contained interactive web page | Available in the next release |
 | `video-explainer` | Turns a topic or an answer into a short narrated video (MP4, captions, script) | Available in the next release |
 
@@ -41,6 +41,23 @@ in `out/video-explainer/<slug>/`.
   [`narration-engines.md`](skills/video-explainer/references/narration-engines.md): edge-tts uses an unofficial
   endpoint.
 - To keep caches off your system drive, set `UV_CACHE_DIR` and `VIDEO_EXPLAINER_CACHE`.
+
+## Using diagram-explainer
+
+Ask for a diagram explicitly, for example "draw a diagram of this answer", "show this as a sequence diagram" or
+"畫一張圖說明 git rebase". The skill picks the diagram type from your question (a pipeline reads left to right), sizes
+the diagram to the topic and splits it only when the rendered image is hard to read. Each diagram has a title, labels
+with a short name and one detail line, colors with a fixed meaning (for example pass green, fail red) explained by a
+legend, and one caption line that says what to look at. You get the Mermaid code in the reply, and `diagram.mmd` and
+`caption.md` in `out/diagram-explainer/<slug>/`.
+
+- Only `flowchart`, `sequenceDiagram` and `stateDiagram-v2`, in syntax that renders on GitHub and in common tools. A
+  stdlib checker script checks every diagram before you see it.
+- Optional rendering to `diagram.svg` and `diagram.png` needs [uv](https://docs.astral.sh/uv/), network access, and
+  Google Chrome, Microsoft Edge or Playwright's Chromium. The skill never downloads a browser without asking you. Without
+  a browser, you still get the checked Mermaid source.
+- Labels follow the STE principles. They are inspired by ASD-STE100, are not official and are not endorsed by ASD.
+- D2 or Graphviz only when you ask for them and have them installed.
 
 ## Using html-explainer
 

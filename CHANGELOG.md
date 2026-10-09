@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - README with both install routes, the skill list and the format ladder.
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.
 - MIT license.
+- `diagram-explainer` skill: explains a topic or AI output as one to three Mermaid diagrams (flowchart,
+  sequence, state) with a one-line caption, saved to `out/diagram-explainer/<slug>/`. Includes the stdlib
+  `diagram_check.py` checker (size warnings, label length, fragile syntax) with unit tests, the `render_diagram.py` SVG/PNG
+  renderer (Playwright, pinned Mermaid 11, no silent browser download), references with a type-selection table, and a
+  20-query trigger eval.
 - `html-explainer` skill: turns a topic or AI output into one self-contained interactive HTML page
   (`out/html-explainer/<slug>/index.html`) with six interaction patterns (step-through, slider, layer toggles, reveal, predict-then-reveal, preset scenarios). Includes the
   `page_check.py` static checker (standard library, with unit tests), the `render_check.py` headless-browser check
@@ -36,5 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the styled skeleton with a bare one so that the agent designs each page for its topic; the page structure and
   state color names are now recommendations, the topic decides the number of key points, and the description also
   triggers on a request for an explanation "in HTML".
+- `diagram-explainer` skill: no fixed node budget; the diagram is sized to the topic and split (at most three) only
+  when the layout check shows it is hard to read. Each diagram has a title (front matter), two-line labels (a name,
+  `<br>`, one detail), colors with a fixed meaning (`classDef`/`class`/`linkStyle`, a palette readable in dark mode)
+  and a legend. A chain of stages, also with pass/fail checks, is now `flowchart LR`; `flowchart TD` is for branching.
+  `diagram_check.py` reports size limits (about 20 nodes, 8 participants, 20 messages) as `warnings` that do not fail,
+  checks the name line (5 words / 10 CJK characters) and the detail line (8 words / 16 CJK characters) of each label,
+  and accepts `<br>`, title front matter, `classDef`, `class`, `linkStyle` and `:::` classes. `%%{init}` stays rejected.
 - `ste-writing` skill: new core rule "keep articles (the, a, an)", and "80% STE" or "soft STE" now means relaxed.
   The eval adds an explain set of four zh-TW topics (`--set explain`) with a blind review page for a two-axis human rating.
