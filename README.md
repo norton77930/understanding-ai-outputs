@@ -20,16 +20,42 @@ Each step is its own skill. Install only the ones you need.
 | `ste-writing` | Writes or rewrites text in a relaxed Simplified Technical English style | Available in the next release |
 | `diagram-explainer` | Turns a topic or an answer into one to three small Mermaid diagrams (flowchart, sequence, state) with a caption | Available in the next release |
 | `html-explainer` | Turns a topic or an answer into one self-contained interactive web page | Available in the next release |
-| `video-explainer` | Turns a topic or an answer into a short narrated video (MP4, captions, script) | Available in the next release |
+| `video-explainer` | Turns a topic or an answer into a narrated video (MP4, captions, script), from a one-minute summary to a 5 to 10 minute deep dive | Available in the next release |
 
 `ste-writing` is inspired by ASD-STE100. It is not official and is not endorsed by ASD. The skill uses its own
 rules and its own replacement list, not the ASD-STE100 dictionary ([ADR 0001](docs/adr/0001-third-party-reference-material-stays-local.md)).
 
+## How this project works
+
+- **One format, one skill.** Each skill starts only when you ask for its format: "draw a diagram", "make an
+  interactive page", "make a video", "explain in STE". It never picks a format for you. A 20-query trigger eval for
+  each skill checks this (all four pass 20/20).
+- **The model designs, scripts check.** Early versions with strict layout rules lost to Claude without the skill in
+  blind tests. The skills now leave the design to the model and keep checker scripts as a floor: Mermaid syntax and
+  label length, page render on phone and desktop in light and dark mode, video captions and audio sync.
+- **Evidence from blind ratings.** The maintainer rates the rendered output (the image, the page, the video), not the
+  source, without knowing which one the skill made. Each round uses new topics. Latest round against Claude without
+  the skill:
+
+| Skill | Latest blind round | Result |
+| --- | --- | --- |
+| `ste-writing` | 4 explain topics (zh-TW) | 2 wins, 1 tie, 1 loss. Without the skill, Claude answered all four zh-TW requests in English. |
+| `diagram-explainer` | 4 topics, round 2 | 2 wins, 1 tie, 1 loss. Presentation 4.75 vs 4.5. |
+| `html-explainer` | 4 topics, round 3 | 1 win, 3 ties. The baseline won rounds 1 and 2; removing the fixed page style closed the gap. |
+| `video-explainer` | 2 topics with a baseline | 2 wins. Presentation 5 vs 4. |
+
+The full runs, costs and losses are in each skill's `evals/<skill>/RESULTS.md`.
+
+Related projects: [ELI5](https://github.com/anthropics/claude-plugins-community) (Anthropic's community plugins),
+[answer-me-with-html](https://github.com/QingYunA/answer-me-with-html).
+
 ## Using video-explainer
 
 Ask for a video explicitly, for example "make an explainer video of this answer" or "做一支解釋 TCP 握手的短影片". The
-skill writes a storyboard and shows you the scene count, the full narration, the estimated length and render time, and
-any model download with its size. It renders only after you approve. You get `video.mp4`, `video.srt` and `script.md`
+skill asks at most two short questions (depth and audience) and skips what your request already says ("3b1b" or
+"deep dive" means deep). Modes: quick (about 1 minute), standard (2 to 4 minutes, default) and deep (5 to 10 minutes).
+It writes a storyboard and shows you the mode, the scene count, the full narration, the estimated length and render
+time, and any model download with its size. It renders only after you approve. You get `video.mp4`, `video.srt` and `script.md`
 in `out/video-explainer/<slug>/`.
 
 - Needs [uv](https://docs.astral.sh/uv/) and ffmpeg. The plugin installs nothing. ManimCE and the narration engines
