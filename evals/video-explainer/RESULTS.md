@@ -4,7 +4,7 @@ The newest run is first; run `20261008-035608` is kept below as history.
 
 ## Run `20261009-132820` (issue #41): with-skill vs baseline, two rating axes
 
-Status: automated metrics filled; maintainer ratings pending.
+Status: complete. Automated metrics filled; maintainer rated the videos blind on 2026-10-10.
 
 Model: claude CLI default (`claude` 2.1.295). Command: `python evals/video-explainer/run_eval.py --workers 3 --timeout 5400`. A/B seed: `20261009-132820`. Topics approved by the maintainer on 2026-10-09 (01 and 03 Sources expanded). Full report: `evals/video-explainer/runs/20261009-132820/report.md`; review page: `evals/video-explainer/runs/20261009-132820/review.html` (both git-ignored, local only).
 
@@ -28,20 +28,24 @@ Baseline arm (reported, not gated; "n/a" for captions, layout check and mode che
 | 01-binary-search | PASS | FAIL (854x480) | 238.3 s | FAIL (2.72 s) | n/a | n/a | n/a | 17 | $1.44 | 3834 s |
 | 03-git-merge-vs-rebase | PASS | PASS (1920x1080) | 90.5 s | PASS (0.01 s) | n/a | n/a | n/a | 5 | $1.46 | 1060 s |
 
-### Maintainer ratings (blind; leave empty until rated)
+### Maintainer ratings (blind)
 
 Rate on `review.html`, press the Markdown button, paste the table here. Per video: **Understanding** (did I understand it, 1-5, against the topic's "Viewer should understand" bullets) and **Presentation** (continuity, motion, narration naturalness, pacing; 1-5). For topics with a baseline also pick the better video (A / B / tie). Then fill "With-skill was" from `report.json` `ab_key`; do this only after rating.
 
 | Topic | Video | Understanding (1-5) | Presentation (1-5) | Better (A / B / tie) | With-skill was (from key) | Notes |
 |---|---|---|---|---|---|---|
-| 01-binary-search | A | | | | | |
-| 01-binary-search | B | | | | | |
-| 02-gradient-descent | - | | | n/a | n/a (no baseline) | |
-| 03-git-merge-vs-rebase | A | | | | | |
-| 03-git-merge-vs-rebase | B | | | | | |
-| 04-http-request | - | | | n/a | n/a (no baseline) | |
+| 01-binary-search | A | 5 | 4 | B | B (A = baseline) | B's animation, presentation and voice are more comfortable to watch. |
+| 01-binary-search | B | 5 | 5 | | | |
+| 02-gradient-descent | - | 5 | 5 | n/a | n/a (no baseline) | |
+| 03-git-merge-vs-rebase | A | 5 | 4 | B | B (A = baseline) | Same note as 01. |
+| 03-git-merge-vs-rebase | B | 5 | 5 | | | |
+| 04-http-request | - | 5 | 5 | n/a | n/a (no baseline) | |
 
 "Better" and "With-skill was" are filled once per topic with a baseline (on the A row; the B row can stay empty or repeat it). The A/B order differs per topic.
+
+**Result: the skill won both topics with a baseline (01, 03).** Understanding 5 for every video in both arms. Presentation: with-skill 5 on all four topics; baseline 4 on both. The maintainer's reason: the skill's animation, presentation and voice are more comfortable to watch.
+
+On-screen text: both baseline videos burn the full narration in as subtitles. The skill's `explainer` and `youtube` presets show only key words on screen and deliver the full captions as `video.srt`; only `short` burns captions in (04). The maintainer noticed this difference while rating.
 
 ### Observations from this run
 
