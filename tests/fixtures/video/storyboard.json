@@ -2,6 +2,7 @@
   "slug": "tiny-halving",
   "lang": "en",
   "preset": "explainer",
+  "mode": "quick",
   "engine": "silent",
   "scenes": [
     {"id": "s1", "narration": "Here are eight boxes in a row. We want to find one number."},

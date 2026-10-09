@@ -48,3 +48,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `diagram_check.py` reports size limits (about 20 nodes, 8 participants, 20 messages) as `warnings` that do not fail,
   checks the name line (5 words / 10 CJK characters) and the detail line (8 words / 16 CJK characters) of each label,
   and accepts `<br>`, title front matter, `classDef`, `class`, `linkStyle` and `:::` classes. `%%{init}` stays rejected.
+- `video-explainer` skill: intent modes replace the fixed 3 to 8 scenes and 30 to 120 seconds. Before the storyboard
+  the agent asks at most two questions (depth, audience), each with a recommended default, only for what the request
+  does not say; words such as "3b1b" or "deep dive" (deep), "quick" (quick) and "Short" or "Reels" (`short` with
+  quick) set the mode without a question; the default is standard for a general audience. Modes: quick (about
+  1 minute, 3 to 6 scenes), standard (2 to 4 minutes, 6 to 15 scenes) and deep (5 to 10 minutes, 15 to 30 scenes).
+  The storyboard has an optional `mode` field; `plan` fails on a scene count outside the mode's range, adds a notice
+  when the estimate is outside the mode's length, keeps `short` at 60 s or less, and reports `mode` in its JSON
+  (the preset's `target_seconds` becomes `max_seconds`). The storyboard confirmation shows the mode. A 3b1b-like style
+  in every mode: carried objects that `Transform` when the idea continues, one color per concept, and counting numbers
+  with `Text` and an updater, with two new scene examples. The description no longer says "short".

@@ -10,8 +10,16 @@ The scenes module is a Python file with one function per storyboard scene id. `m
 4. **Place with layout areas, not fixed coordinates.** Use `ctx.layout.title`, `.content`, `.caption`, `.grid()`, `.fit()` and `.keep_inside()`. Do not write `LEFT * 6` or `UP * 3.5`: the `short` preset frame is 4.5 units wide, not 14.2.
 5. **Time everything with `ctx.beats()`.** It fills exactly `ctx.duration`, the measured narration length. Do not call `ctx.scene.play()` or `ctx.scene.wait()` with your own run times.
 6. **Change a caption with `ctx.swap_caption(old, new)`.** A cross-fade at one position leaves a ghost of the old text.
-7. **Each scene starts on a clean screen.** When a scene starts, the helper fades out everything the previous scene left on screen (0.3 s, taken from the new scene's time). To reuse objects in the next scene, call `ctx.carry(obj, ...)` in the scene that leaves them, and keep them in a module-level dict. A carried part keeps its whole on-screen group. `ctx.carry()` with no arguments keeps everything. Carry again in each scene that passes an object on.
+7. **The helper clears what you do not carry.** When a scene starts, the helper fades out everything the previous scene left on screen (0.3 s, taken from the new scene's time). This is the safe default. To reuse objects in the next scene, call `ctx.carry(obj, ...)` in the scene that leaves them, and keep them in a module-level dict. A carried part keeps its whole on-screen group. `ctx.carry()` with no arguments keeps everything. Carry again in each scene that passes an object on. See "Style" below for when to carry.
 8. **Never draw in `layout.narration`.** The `short` preset burns the narration captions into that band. In other presets it has zero height.
+
+## Style (every mode)
+
+Aim for a 3Blue1Brown-like video: the viewer sees one idea develop, not a slide deck.
+
+- **Continuity.** When the next scene continues the idea, `ctx.carry()` its objects and change them there with `Transform` or `.animate` (move, recolor, reshape). Keep a clean screen for a new idea. Example 4 shows this.
+- **One color per concept.** Give each concept one color for the whole video, in one module-level dict (for example `COLORS = {"value": BLUE, "focus": YELLOW}`). Do not reuse a concept's color for another concept.
+- **Counting numbers.** Show a value that changes as a number that counts up or down: a `ValueTracker` and an `always_redraw` that rebuilds a `ctx.text(...)`. Do not use `DecimalNumber` or `Integer` (they need LaTeX). Example 5 shows this.
 
 ## Helper API
 
@@ -167,5 +175,75 @@ def s2(ctx):
     caption = ctx.caption("Small steps go downhill")
     steps = [(ball.animate.move_to(axes.c2p(x, x * x)), 1) for x in (-1.6, -0.9, -0.4, 0)]
     ctx.beats([(ctx.swap_caption(STATE["caption"], caption), 1), *steps])
+    STATE["caption"] = caption
+```
+
+## Example 4: en, continuity: the same bars, sorted (carry + Transform)
+
+Scene `s2` continues the idea of `s1`, so `s1` carries the bars and `s2` transforms them in place. The title is not carried, so it fades out. Each bar keeps its color and height: the viewer sees the same values move.
+
+```python
+from manim import BLUE, DOWN, RIGHT, YELLOW, FadeIn, Rectangle, Transform, VGroup
+
+STATE = {}
+VALUES = [5, 2, 7, 1, 6, 3]
+COLORS = {"value": BLUE, "focus": YELLOW}  # one color per concept, for the whole video
+
+
+def s1(ctx):
+    title = ctx.title("Sorting")
+    bars = VGroup(*[Rectangle(width=0.6, height=0.5 * v, color=COLORS["value"],
+                              fill_opacity=0.6) for v in VALUES])
+    bars.arrange(RIGHT, buff=0.25, aligned_edge=DOWN)
+    ctx.layout.fit(bars, ctx.layout.content)
+    caption = ctx.caption("Six values, out of order")
+    STATE.update(bars=bars, caption=caption)
+    ctx.carry(bars, caption)  # s2 continues this idea
+    ctx.beats([(FadeIn(title), 1), (FadeIn(bars), 2), (FadeIn(caption), 1)])
+
+
+def s2(ctx):
+    bars = STATE["bars"]
+    slots = [bar.get_bottom() for bar in bars]  # left to right
+    order = sorted(range(len(VALUES)), key=VALUES.__getitem__)
+    target = bars.copy()
+    for rank, i in enumerate(order):
+        target[i].move_to(slots[rank], aligned_edge=DOWN)  # bar i goes to its sorted slot
+    target[order[0]].set_color(COLORS["focus"])  # the smallest value
+    caption = ctx.caption("Same values, now in order")
+    ctx.beats([(Transform(bars, target), 2), (ctx.swap_caption(STATE["caption"], caption), 1)])
+    STATE["caption"] = caption
+```
+
+## Example 5: zh-TW, a number that counts down (Text and an updater)
+
+A `ValueTracker` holds the value. `always_redraw` rebuilds the `Text` from it on every frame, so the number counts while the tracker animates. `s1` carries the number and the tracker, and `s2` keeps counting.
+
+```python
+from manim import YELLOW, FadeIn, ValueTracker, always_redraw
+
+STATE = {}
+COLORS = {"count": YELLOW}
+
+
+def s1(ctx):
+    title = ctx.title("還剩幾個？")
+    left = ValueTracker(16)
+    anchor = ctx.layout.content.center
+    count = always_redraw(lambda: ctx.text(str(round(left.get_value())), size=96,
+                                           color=COLORS["count"]).move_to(anchor))
+    caption = ctx.caption("十六個數字")
+    STATE.update(left=left, count=count, caption=caption)
+    ctx.carry(count, left, caption)  # s2 keeps counting the same number
+    ctx.beats([([FadeIn(title), FadeIn(count)], 1), (FadeIn(caption), 1), (None, 1)])
+
+
+def s2(ctx):
+    left = STATE["left"]
+    caption = ctx.caption("每次少一半")
+    ctx.beats([
+        (ctx.swap_caption(STATE["caption"], caption), 1),
+        *[(left.animate.set_value(n), 1) for n in (8, 4, 2, 1)],
+    ])
     STATE["caption"] = caption
 ```
