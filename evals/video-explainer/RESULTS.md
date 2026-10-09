@@ -1,32 +1,32 @@
 # video-explainer eval results
 
-The newest run is first (template, filled from the real run); run `20261008-035608` is kept below as history.
+The newest run is first; run `20261008-035608` is kept below as history.
 
-## Run `<timestamp>` (issue #41): with-skill vs baseline, two rating axes
+## Run `20261009-132820` (issue #41): with-skill vs baseline, two rating axes
 
-Status: PENDING. Not run yet; the real run and the maintainer ratings are still to come. Replace every `<...>` below.
+Status: automated metrics filled; maintainer ratings pending.
 
-Model: `<claude CLI default | model>` (`claude` `<version>`). Command: `python evals/video-explainer/run_eval.py`. Workers `<n>`, timeout 3600 s per arm. A/B seed: `<seed, from report.json meta.seed>`. Full report: `evals/video-explainer/runs/<timestamp>/report.md`; review page: `evals/video-explainer/runs/<timestamp>/review.html` (both git-ignored, local only).
+Model: claude CLI default (`claude` 2.1.295). Command: `python evals/video-explainer/run_eval.py --workers 3 --timeout 5400`. A/B seed: `20261009-132820`. Topics approved by the maintainer on 2026-10-09 (01 and 03 Sources expanded). Full report: `evals/video-explainer/runs/20261009-132820/report.md`; review page: `evals/video-explainer/runs/20261009-132820/review.html` (both git-ignored, local only).
 
-### Automated metrics (fill from report.md)
+### Automated metrics
 
-**With-skill verdict: `<PASS | FAIL | INCOMPLETE>`.** `<n>`/4 rendered. Layout-check pass rate `<..>`. With-skill arm: `<turns>` turns, `$<cost>`, `<minutes>` min wall time. Baseline arm: `<n>`/2 rendered, `<turns>` turns, `$<cost>`, `<minutes>` min wall time. The baseline does not gate the verdict.
+**With-skill verdict: PASS.** 4/4 rendered. Layout-check pass rate 100% (57/57 scenes not flagged), 0 fallback scenes. With-skill arm: 71 turns, $6.18, 126 min wall time (sum over topics; 3 workers). Baseline arm: 2/2 rendered, 22 turns, $2.90, 82 min wall time. The baseline does not gate the verdict.
 
 With-skill arm (gated). Mode ranges come from the skill's `MODES` and are reported, not gated.
 
 | Topic | Mode requested | Storyboard mode | Scenes (in mode range) | Video length (in mode range) | Render | Resolution | A/V diff (pass <= 0.3 s) | Layout check (not flagged; fallback) | Captions match narration | Turns | Cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 01-binary-search | deep | | | | | | | | | | | |
-| 02-gradient-descent | quick | | | | | | | | | | | |
-| 03-git-merge-vs-rebase | standard | | | | | | | | | | | |
-| 04-http-request | quick | | | | | | | | | | | |
+| 01-binary-search | deep | deep | 30 (yes, 15-30) | 261.0 s (no, 300-600 s) | PASS | PASS (1280x720) | PASS (0.01 s) | 100% (30/30); 0 | PASS (30/30) | 2 | $2.88 | 3439 s |
+| 02-gradient-descent | quick | quick | 6 (yes, 3-6) | 48.5 s (yes, 30-90 s) | PASS | PASS (1280x720) | PASS (0.00 s) | 100% (6/6); 0 | PASS (6/6) | 3 | $1.11 | 2406 s |
+| 03-git-merge-vs-rebase | standard | standard | 15 (yes, 6-15) | 115.9 s (no, 120-240 s) | PASS | PASS (1920x1080) | PASS (0.01 s) | 100% (15/15); 0 | PASS (15/15) | 33 | $1.22 | 921 s |
+| 04-http-request | quick | quick | 6 (yes, 3-6) | 43.5 s (yes, 30-90 s) | PASS | PASS (1080x1920) | PASS (0.01 s) | 100% (6/6); 0 | PASS (6/6) | 33 | $0.98 | 795 s |
 
 Baseline arm (reported, not gated; "n/a" for captions, layout check and mode checks):
 
 | Topic | Render | Resolution | Video length | A/V diff | Captions | Layout check | Mode checks | Turns | Cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 01-binary-search | | | | | n/a | n/a | n/a | | | |
-| 03-git-merge-vs-rebase | | | | | n/a | n/a | n/a | | | |
+| 01-binary-search | PASS | FAIL (854x480) | 238.3 s | FAIL (2.72 s) | n/a | n/a | n/a | 17 | $1.44 | 3834 s |
+| 03-git-merge-vs-rebase | PASS | PASS (1920x1080) | 90.5 s | PASS (0.01 s) | n/a | n/a | n/a | 5 | $1.46 | 1060 s |
 
 ### Maintainer ratings (blind; leave empty until rated)
 
@@ -45,7 +45,11 @@ Rate on `review.html`, press the Markdown button, paste the table here. Per vide
 
 ### Observations from this run
 
-`<to fill after the run>`
+- **01 with-skill took deep mode without a depth question** (the request names 3Blue1Brown): the open acceptance item of issue #40. 30 scenes, but 4 min 21 s, under the deep target of 5 to 10 minutes: the narration ran faster than the plan's estimate. Chinese at about 30 characters per scene gives about 9 to 11 s per scene, so deep mode reaches 5 minutes only near its 30-scene maximum. 03 (standard, 15 scenes, 116 s) is also just under its range. The skill's own reply reported both shortfalls.
+- **01 baseline did not finish.** Its last reply says the final 1080p render "is running in the background"; that process ended with the `claude -p` session, so the only video is Manim's 480p preview (854x480, audio 2.72 s off). The rating uses that video as the baseline's result.
+- **03 baseline built its own pipeline** with Python/PIL frames, the Windows "Hanhan" voice and ffmpeg (no Manim, burned-in subtitles, also a thumbnail and a YouTube description). Its own reply calls the voice the weakest part.
+- With-skill 01 added two derived numbers (2^20 = 1,048,576; about 21 and 22 comparisons for 2 and 4 million items) and said so. 03 with-skill added a short "what is a commit and a branch" scene for the Git-beginner audience the request names, and said so.
+- The resolution and A/V differences make the 01 pair partly identifiable; the rating is blind to labels, not to quality.
 
 ---
 
