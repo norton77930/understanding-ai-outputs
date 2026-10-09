@@ -309,5 +309,14 @@ class ReviewPageTest(unittest.TestCase):
         self.assertLess(page.index("01-x"), page.index("02-y"))
 
 
+class ExplainSuffixTest(unittest.TestCase):
+    def test_suffix_goes_last_for_both_arms(self):
+        topic = {"request": "用 STE 解釋：X", "context": "背景", "points": []}
+        self.assertEqual(run_eval.explain_prompt(topic, "請用繁體中文回答。"),
+                         "用 STE 解釋：X\n\n背景\n\n請用繁體中文回答。\n")
+        self.assertEqual(run_eval.explain_prompt(topic), "用 STE 解釋：X\n\n背景\n")
+
+
 if __name__ == "__main__":
     unittest.main()
+

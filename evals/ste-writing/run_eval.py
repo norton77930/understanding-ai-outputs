@@ -356,9 +356,11 @@ def parse_explain_topic(topic_id, text):
             "context": _section(text, "Context") or None, "points": points}
 
 
-def explain_prompt(topic):
-    """The explain request, then the context if any. Both arms get the same one."""
+def explain_prompt(topic, suffix=None):
+    """The explain request, then the context if any, then the optional suffix. Both arms get the same one."""
     parts = [topic["request"].strip()] + ([topic["context"].strip()] if topic.get("context") else [])
+    if suffix:
+        parts.append(suffix.strip())
     return "\n\n".join(parts) + "\n"
 
 
@@ -630,7 +632,7 @@ def process_explain_arm(topic, arm, args, claude_exe, run_dir):
     entry = {"output": None, "totals": None, "metrics": None, "meta": None, "seconds": None, "errors": []}
     start = time.monotonic()
     try:
-        text, meta = run_claude(build_cmd(claude_exe, arm, args.model), explain_prompt(topic), args.timeout)
+        text, meta = run_claude(build_cmd(claude_exe, arm, args.model), explain_prompt(topic, args.suffix), args.timeout)
         entry["seconds"] = round(time.monotonic() - start, 1)
         entry["output"], entry["meta"] = text, meta
         (run_dir / f"{topic['id']}.{arm}.txt").write_text(text + "\n", encoding="utf-8")
@@ -652,7 +654,7 @@ def run_explain(args, claude_exe, timestamp):
         for t in topics:
             for arm in ARMS:
                 print(f"[{t['id']}] {arm}: {' '.join(build_cmd(claude_exe, arm, args.model))}")
-            print(f"[{t['id']}] stdin: {explain_prompt(t)!r}")
+            print(f"[{t['id']}] stdin: {explain_prompt(t, args.suffix)!r}")
         print(f"checker: {' '.join(checker_cmd('relaxed'))}")
         print(f"review: runs/<timestamp>/review.html (A/B order seed {args.seed})")
         return 0
@@ -717,6 +719,8 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, default=4, help="parallel passages (default 4)")
     parser.add_argument("--seed", default=None, help="seed for the judge or review A/B order (default: timestamp)")
     parser.add_argument("--timeout", type=int, default=600, help="seconds per claude call (default 600)")
+    parser.add_argument("--suffix", default=None,
+                        help="explain set: a line added to the request of both arms, e.g. a language instruction")
     parser.add_argument("--strictness", choices=STRICTNESS, default="relaxed",
                         help="relaxed (default) or strict: changes the request, the checker call and the gates")
     args = parser.parse_args(argv)
