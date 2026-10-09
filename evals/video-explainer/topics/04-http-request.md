@@ -1,6 +1,7 @@
 - Language: en
 - Output preset: `short` (9:16, 1080x1920, captions burned in)
-- Target length: 45–60 s (at most 60 s), 4–5 scenes
+- Mode: `quick`
+- Request: Make a YouTube Short that explains the following.
 
 ## Source
 

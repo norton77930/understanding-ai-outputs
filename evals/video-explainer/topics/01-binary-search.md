@@ -1,6 +1,7 @@
 - Language: zh-TW
 - Output preset: `explainer` (16:9, 720p)
-- Target length: 60–90 s, 4–6 scenes
+- Mode: `deep`
+- Request: 用 3Blue1Brown 風格，把下面這段說明做成一支深入的解說影片。
 
 ## Source
 

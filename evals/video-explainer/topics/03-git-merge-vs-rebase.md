@@ -1,6 +1,7 @@
 - Language: zh-TW
 - Output preset: `youtube` (16:9, 1080p)
-- Target length: 90–120 s, 5–8 scenes
+- Mode: `standard`
+- Request: 把下面這段說明做成一支 YouTube 解說影片，給剛開始用 Git 的同事看。
 
 ## Source
 
