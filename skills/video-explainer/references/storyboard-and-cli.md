@@ -9,6 +9,7 @@
   "slug": "binary-search",
   "lang": "zh-TW",
   "preset": "explainer",
+  "mode": "quick",
   "engine": null,
   "scenes": [
     {"id": "s1", "narration": "要在十六個排好的數字裡找三十七。先看正中間。"},
@@ -24,6 +25,7 @@
 | `slug` | yes | Lower-case letters, digits and single hyphens. Names the output folder. |
 | `lang` | yes | Narration language tag: `en`, `zh-TW`, or another tag (best effort, see `narration-engines.md`). |
 | `preset` | no | `explainer` (default), `youtube` or `short`. See `output-presets.md`. |
+| `mode` | no | `quick` (3 to 6 scenes, about 1 minute), `standard` (default; 6 to 15 scenes, 2 to 4 minutes) or `deep` (15 to 30 scenes, 5 to 10 minutes). `plan` fails when the scene count is outside the mode's range, and adds a notice when the estimated length is outside the mode's length. `preview` and `final` do not check the scene count. |
 | `engine` | no | `null` for automatic selection, an engine name (`"kokoro"`, `"edge-tts"`), or `{"name": "kokoro", "voice": "zf_001"}`. The object form needs `name`; a voice alone is an error. The `silent` engine is for tests only. |
 | `scenes` | yes | Non-empty list, in play order. |
 | `scenes[].id` | yes | Unique. Also the function name in the scenes module and the frame file name. Lower-case letters, digits and underscores, not starting with a digit (`s1`, `intro`). Not a Python keyword or a Windows device name (`con`, `nul`, `com1`). |
@@ -49,7 +51,7 @@ Each command prints one JSON object on stdout. Progress and library output go to
 Exit codes:
 
 - `0`: success.
-- `1`: a check failed. Fix the input. Examples: invalid storyboard, missing scene function, no engine for the language, a scenes module that fails to import (also an `ImportError` such as `from manim import ShowCreation`), or scene code raised during `preview` or `final`.
+- `1`: a check failed. Fix the input. Examples: invalid storyboard, a scene count outside the mode's range (`plan` only), missing scene function, no engine for the language, a scenes module that fails to import (also an `ImportError` such as `from manim import ShowCreation`), or scene code raised during `preview` or `final`.
 - `2`: an environment or runtime problem. Examples: missing uv, ffmpeg or ffprobe (listed in `missing_tools` with install hints), ManimCE not installed (run with `uv run`), missing or wrong-size model files, an ffmpeg or ffprobe call that ran longer than 120 seconds, a render failure outside scene code, or an unexpected internal error (then also `error` and `type`). Stop and show it to the user.
 
 On exit 1 or 2, `errors` is a list of messages.
@@ -63,7 +65,8 @@ On exit 1 or 2, `errors` is a list of messages.
 
 ## plan JSON
 
-- `preset`: `name`, `width`, `height`, `fps`, `resolution`, `aspect`, `target_seconds`, `burn_captions`.
+- `preset`: `name`, `width`, `height`, `fps`, `resolution`, `aspect`, `max_seconds` (the preset's length limit in every mode: `60` for `short`, otherwise `null`), `burn_captions`.
+- `mode`: `name`, `scenes` (`[min, max]` scene count), `target_seconds` (`[min, max]` length). Show the mode with the length and render-time estimates.
 - `engine`: `name`, `voice`, `reason`, `fallback` (the offline engine for zh-TW, or `null`).
 - `network`: `"offline"` or `"not checked"`. `plan` never connects. Use `--offline` (or `VIDEO_EXPLAINER_OFFLINE=1`) when the doctor reported no network.
 - `notices`: messages for the user. Show every one.

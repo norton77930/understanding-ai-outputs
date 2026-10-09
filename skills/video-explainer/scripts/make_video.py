@@ -39,6 +39,12 @@ Stop rules, set per scene in the storyboard:
 final's JSON lists them in "replaced" (scene ids) and "flagged"
 ({id, reason, frame}, the frame being the last preview frame of the scene).
 
+Intent modes (storyboard "mode", see MODES): quick, standard (default) and
+deep. `plan` fails (exit 1) when the scene count is outside the mode's range
+and adds a notice when the estimated length is outside the mode's length (and
+when a preset with max_seconds, i.e. short, is over its limit). `preview` and
+`final` do not check the scene count.
+
 `plan` and `fetch-models` need only the Python standard library, and `plan`
 never touches the network: it assumes edge-tts is reachable unless --offline
 or VIDEO_EXPLAINER_OFFLINE=1 says otherwise. `preview` and `final` check
@@ -93,6 +99,8 @@ EN_WORDS_PER_SECOND = 168 / 60
 ZH_HANZI_PER_SECOND = 3.05
 
 # Output presets. Add a row to add a preset.
+#   max_seconds: length limit of the preset in every mode (None: the mode alone
+#       sets the length).
 #   preview_short_side: pixel size of the shorter frame side in `preview`.
 #   burn_captions: draw the narration into the picture, one scene-level caption
 #       per scene (video.srt is written either way).
@@ -103,23 +111,32 @@ ZH_HANZI_PER_SECOND = 3.05
 PRESETS = {
     "explainer": {
         "width": 1280, "height": 720, "fps": 30, "aspect": "16:9",
-        "target_seconds": [30, 120], "burn_captions": False, "layout": {},
+        "max_seconds": None, "burn_captions": False, "layout": {},
         "preview_short_side": 480, "preview_fps": 15,
     },
     "youtube": {
         "width": 1920, "height": 1080, "fps": 30, "aspect": "16:9",
-        "target_seconds": [30, 120], "burn_captions": False, "layout": {},
+        "max_seconds": None, "burn_captions": False, "layout": {},
         "preview_short_side": 480, "preview_fps": 15,
     },
     "short": {
         "width": 1080, "height": 1920, "fps": 30, "aspect": "9:16",
-        "target_seconds": [30, 60], "burn_captions": True,
+        "max_seconds": 60, "burn_captions": True,
         "layout": {"bottom_inset": 0.16, "narration_fraction": 0.3, "caption_fraction": 0.1},
         "caption_chars": {"zh": 11, "default": 24},
         "preview_short_side": 540, "preview_fps": 15,
     },
 }
 DEFAULT_PRESET = "explainer"
+
+# Intent modes: the scene count range (outside it `plan` fails) and the target
+# length in seconds (outside it `plan` adds a notice). Add a row to add a mode.
+MODES = {
+    "quick": {"scenes": [3, 6], "target_seconds": [30, 90]},
+    "standard": {"scenes": [6, 15], "target_seconds": [120, 240]},
+    "deep": {"scenes": [15, 30], "target_seconds": [300, 600]},
+}
+DEFAULT_MODE = "standard"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # Scene ids name frames/<id>.png and the scene function: lower-case Python
@@ -517,6 +534,9 @@ def validate(board):
     preset = board.get("preset", DEFAULT_PRESET)
     if preset not in PRESETS:
         errors.append(f"unknown preset {preset!r}; known presets: {', '.join(PRESETS)}")
+    mode = board.get("mode", DEFAULT_MODE)
+    if mode not in MODES:
+        errors.append(f"unknown mode {mode!r}; known modes: {', '.join(MODES)}")
     engine = board.get("engine")
     name = engine.get("name") if isinstance(engine, dict) else engine
     if isinstance(engine, dict) and name is None:
@@ -560,14 +580,33 @@ def validate(board):
     if errors:
         raise CheckFailed(errors)
     board.setdefault("preset", DEFAULT_PRESET)
+    board.setdefault("mode", DEFAULT_MODE)
 
 
 def preset_info(name):
     p = PRESETS[name]
     return {"name": name, "width": p["width"], "height": p["height"], "fps": p["fps"],
             "resolution": f"{p['width']}x{p['height']}",
-            "aspect": p["aspect"], "target_seconds": p["target_seconds"],
+            "aspect": p["aspect"], "max_seconds": p["max_seconds"],
             "burn_captions": p["burn_captions"]}
+
+
+def mode_info(name):
+    m = MODES[name]
+    return {"name": name, "scenes": m["scenes"], "target_seconds": m["target_seconds"]}
+
+
+def check_scene_count(board):
+    """The scene count must fit the mode. Only `plan` checks it, so a storyboard
+    that the user approved still previews and renders."""
+    mode = board["mode"]
+    low, high = MODES[mode]["scenes"]
+    count = len(board["scenes"])
+    if not low <= count <= high:
+        ranges = ", ".join(f"{n} {m['scenes'][0]}-{m['scenes'][1]}" for n, m in MODES.items())
+        raise CheckFailed([f"the storyboard has {count} scenes, but the {mode} mode needs "
+                           f"{low}-{high} scenes; change the scene count or set another mode "
+                           f"({ranges})"])
 
 
 def out_dir_for(board, out):
@@ -588,6 +627,7 @@ def engine_info(selection):
 
 def cmd_plan(args):
     board = load_storyboard(args.storyboard)
+    check_scene_count(board)
     offline = args.offline or network_offline()
     selection = select_engine(board, offline=offline)
     notices = list(selection["notices"])
@@ -604,17 +644,21 @@ def cmd_plan(args):
                        "captions": split_captions(s["narration"], board["lang"]),
                        "fallback": s.get("fallback", False), "flagged": s.get("flagged")})
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
-    low, high = preset["target_seconds"]
+    mode = board["mode"]
+    low, high = MODES[mode]["target_seconds"]
     if total > high:
-        notices.append(f"Estimated length {total} s exceeds the {high} s limit for the "
-                       f"{board['preset']} preset (target {low}-{high} s); shorten the "
-                       "storyboard.")
+        notices.append(f"Estimated length {total} s is above the {mode} mode target of "
+                       f"{low}-{high} s; shorten the scenes or switch to a deeper mode.")
     elif total < low:
-        notices.append(f"Estimated length {total} s is below the {board['preset']} "
-                       f"target of {low}-{high} s.")
+        notices.append(f"Estimated length {total} s is below the {mode} mode target of "
+                       f"{low}-{high} s; add scenes or switch to a quicker mode.")
+    limit = preset["max_seconds"]
+    if limit is not None and total > limit:
+        notices.append(f"Estimated length {total} s exceeds the {limit} s limit for the "
+                       f"{board['preset']} preset; shorten the storyboard.")
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
-              "preset": preset_info(board["preset"]),
+              "preset": preset_info(board["preset"]), "mode": mode_info(mode),
               "engine": engine_info(selection),
               "network": "offline" if offline else "not checked",
               "notices": notices, "downloads": downloads,

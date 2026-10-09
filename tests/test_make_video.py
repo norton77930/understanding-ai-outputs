@@ -27,7 +27,14 @@ SCENES = FIXTURES / "scenes.py"
 
 
 def load_storyboard():
+    """The fixture storyboard: 3 English scenes in the quick mode (3-6 scenes)."""
     return json.loads(STORYBOARD.read_text(encoding="utf-8"))
+
+
+def padded(*scenes):
+    """The given scenes, then filler scenes up to the quick mode's minimum of 3."""
+    filler = [{"id": f"pad{i}", "narration": "Short filler."} for i in range(3 - len(scenes))]
+    return [*scenes, *filler]
 
 
 def run(cmd, cwd=None, env=None):
@@ -80,11 +87,11 @@ class PlanTests(unittest.TestCase):
 
     def test_english_estimate_follows_word_count(self):
         board = load_storyboard()
-        board["scenes"] = [{"id": "a", "narration": " ".join(["word"] * 28)},
-                           {"id": "b", "narration": " ".join(["word"] * 56)}]
+        board["scenes"] = padded({"id": "a", "narration": " ".join(["word"] * 28)},
+                                 {"id": "b", "narration": " ".join(["word"] * 56)})
         code, data = self.plan(board)
         self.assertEqual(code, 0, data)
-        a, b = (s["estimated_seconds"] for s in data["scenes"])
+        a, b = (s["estimated_seconds"] for s in data["scenes"][:2])
         self.assertGreater(b, a)
         # About 168 words per minute: 28 words take about 10 s plus a short pad.
         self.assertTrue(9 < a < 12, a)
@@ -92,7 +99,8 @@ class PlanTests(unittest.TestCase):
     def test_chinese_estimate_follows_hanzi_count(self):
         board = load_storyboard()
         board["lang"] = "zh-TW"
-        board["scenes"] = [{"id": "a", "narration": "要在十六個由小到大排好的數字裡找三十七。先看正中間的那一個。"}]
+        board["scenes"] = padded(
+            {"id": "a", "narration": "要在十六個由小到大排好的數字裡找三十七。先看正中間的那一個。"})
         code, data = self.plan(board)
         self.assertEqual(code, 0, data)
         seconds = data["scenes"][0]["estimated_seconds"]
@@ -102,8 +110,9 @@ class PlanTests(unittest.TestCase):
 
     def test_long_english_narration_is_split_into_caption_lines(self):
         board = load_storyboard()
-        board["scenes"] = [{"id": "a", "narration": "This is the first sentence of the scene. "
-                            "This second sentence is a bit longer than the first one is."}]
+        board["scenes"] = padded({"id": "a", "narration": "This is the first sentence of the "
+                                  "scene. This second sentence is a bit longer than the first "
+                                  "one is."})
         code, data = self.plan(board)
         self.assertEqual(code, 0, data)
         captions = data["scenes"][0]["captions"]
@@ -127,7 +136,7 @@ class PlanTests(unittest.TestCase):
 
     def test_short_estimate_over_60_seconds_warns(self):
         board = load_storyboard()
-        board["scenes"] = [{"id": "a", "narration": " ".join(["word"] * 200)}]
+        board["scenes"] = padded({"id": "a", "narration": " ".join(["word"] * 200)})
         for name, warned in (("short", True), ("youtube", False)):
             board["preset"] = name
             code, data = self.plan(board)
@@ -139,7 +148,7 @@ class PlanTests(unittest.TestCase):
     def test_short_estimate_within_60_seconds_does_not_warn(self):
         board = load_storyboard()
         board["preset"] = "short"
-        board["scenes"] = [{"id": "a", "narration": " ".join(["word"] * 84)}]
+        board["scenes"] = padded({"id": "a", "narration": " ".join(["word"] * 84)})
         code, data = self.plan(board)
         self.assertEqual(code, 0, data)
         self.assertTrue(30 <= data["estimated_total_seconds"] <= 60, data)
@@ -204,7 +213,7 @@ class PlanTests(unittest.TestCase):
         board = load_storyboard()
         board["lang"] = "zh-TW"
         narration = "這個新的feature讓我們用Python和JavaScript處理streaming資料更方便"
-        board["scenes"] = [{"id": "a", "narration": narration}]
+        board["scenes"] = padded({"id": "a", "narration": narration})
         code, data = self.plan(board)
         self.assertEqual(code, 0, data)
         captions = data["scenes"][0]["captions"]
@@ -225,6 +234,85 @@ class PlanTests(unittest.TestCase):
         self.assertIsInstance(data["type"], str)
         self.assertIsInstance(data["error"], str)
         self.assertTrue(data["errors"], data)
+
+
+def word_scenes(count, words=15):
+    """`count` English scenes of `words` words each (15 words: about 5.7 s)."""
+    return [{"id": f"s{i + 1}", "narration": " ".join(["word"] * words)} for i in range(count)]
+
+
+class ModeTests(unittest.TestCase):
+    """The storyboard `mode` (quick, standard, deep) in `plan`."""
+
+    RANGES = {"quick": ((3, 6), (30, 90)), "standard": ((6, 15), (120, 240)),
+              "deep": ((15, 30), (300, 600))}
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def plan(self, scenes, mode=None, preset="explainer"):
+        board = load_storyboard()
+        board.pop("mode", None)
+        board.update(preset=preset, scenes=scenes)
+        if mode is not None:
+            board["mode"] = mode
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        return run([sys.executable, str(SCRIPT), "plan", str(path),
+                    "--out", str(self.tmp / "out")])
+
+    def test_mode_defaults_to_standard(self):
+        code, data = self.plan(word_scenes(8, words=60))
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["mode"], {"name": "standard", "scenes": [6, 15],
+                                        "target_seconds": [120, 240]})
+
+    def test_plan_reports_each_mode_with_its_ranges(self):
+        for name, (scenes, seconds) in self.RANGES.items():
+            code, data = self.plan(word_scenes(scenes[0]), mode=name)
+            self.assertEqual(code, 0, data)
+            self.assertEqual(data["mode"], {"name": name, "scenes": list(scenes),
+                                            "target_seconds": list(seconds)})
+
+    def test_scene_count_outside_the_mode_range_is_invalid(self):
+        for name, ((low, high), _) in self.RANGES.items():
+            for count, valid in ((low - 1, False), (low, True), (high, True), (high + 1, False)):
+                code, data = self.plan(word_scenes(count), mode=name)
+                if valid:
+                    self.assertEqual(code, 0, (name, count, data))
+                else:
+                    self.assertEqual(code, 1, (name, count, data))
+                    self.assertTrue(any(re.search(f"{count} scenes.*{name}.*{low}-{high}", e)
+                                        for e in data["errors"]), data["errors"])
+
+    def test_unknown_mode_is_invalid(self):
+        code, data = self.plan(word_scenes(8), mode="epic")
+        self.assertEqual(code, 1, data)
+        self.assertTrue(any(re.search("mode.*epic", e) for e in data["errors"]), data["errors"])
+
+    def test_estimate_outside_the_mode_length_adds_a_notice(self):
+        # 6 scenes of 15 words: about 34 s, inside quick and below standard.
+        for name, warned in (("quick", False), ("standard", True)):
+            code, data = self.plan(word_scenes(6), mode=name)
+            self.assertEqual(code, 0, data)
+            self.assertEqual(any("below" in n and name in n for n in data["notices"]), warned,
+                             data["notices"])
+        # 15 scenes of 60 words: about 330 s, above standard and inside deep.
+        for name, warned in (("standard", True), ("deep", False)):
+            code, data = self.plan(word_scenes(15, words=60), mode=name)
+            self.assertEqual(code, 0, data)
+            self.assertEqual(any("above" in n and name in n for n in data["notices"]), warned,
+                             data["notices"])
+
+    def test_short_keeps_the_60_second_limit_in_every_mode(self):
+        # 6 scenes of 60 words: about 131 s, inside the standard range.
+        code, data = self.plan(word_scenes(6, words=60), mode="standard", preset="short")
+        self.assertEqual(code, 0, data)
+        self.assertFalse(any("standard" in n and ("below" in n or "above" in n)
+                             for n in data["notices"]), data["notices"])
+        self.assertTrue(any("60 s" in n and "short" in n for n in data["notices"]),
+                        data["notices"])
 
 
 class StopRuleTests(unittest.TestCase):
@@ -308,7 +396,7 @@ class EngineSelectionTests(unittest.TestCase):
         board = load_storyboard()
         board.update(lang=lang, engine=engine, preset=preset)
         if lang.startswith("zh"):
-            board["scenes"] = [{"id": "s1", "narration": "先看正中間的那一個數字。"}]
+            board["scenes"] = padded({"id": "s1", "narration": "先看正中間的那一個數字。"})
         path = self.tmp / "storyboard.json"
         path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if k != "VIDEO_EXPLAINER_OFFLINE"}
@@ -722,6 +810,68 @@ class PresetEndToEndTests(unittest.TestCase):
         at = final["scenes"][0]["start"] + final["scenes"][0]["duration"] / 2
         band = frame_pixels(final["video"], at, 0.05, 0.62, 0.95, 0.76)
         self.assertLess(max(band), 40)
+
+
+SCENES_REFERENCE = ROOT / "skills" / "video-explainer" / "references" / "scenes.md"
+
+
+def reference_example(number):
+    """The Python block of "## Example <number>" in references/scenes.md."""
+    text = SCENES_REFERENCE.read_text(encoding="utf-8")
+    match = re.search(rf"^## Example {number}:.*?^```python\n(.*?)^```", text, re.M | re.S)
+    if match is None:
+        raise AssertionError(f"scenes.md has no Python block under Example {number}")
+    return match.group(1)
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class StyleExampleEndToEndTests(unittest.TestCase):
+    """The continuity (carry + Transform) and counting-number examples in
+    references/scenes.md preview with the silent engine at 16:9 and 9:16."""
+
+    EXAMPLES = {
+        4: ("en", ["Six bars show six values. They are out of order.",
+                   "Sorting moves each bar to its place. The bars stay the same."]),
+        5: ("zh-TW", ["一開始有十六個數字可以找。", "每看一次，就少一半，最後剩一個。"]),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        base = ["uv", "run", "--script", str(SCRIPT)]
+        cls.runs = {}
+        for number, (lang, narrations) in cls.EXAMPLES.items():
+            scenes = cls.tmp / f"example{number}.py"
+            scenes.write_text(reference_example(number), encoding="utf-8")
+            for preset in ("explainer", "short"):
+                board = {"slug": f"example-{number}", "lang": lang, "preset": preset,
+                         "engine": "silent",
+                         "scenes": [{"id": f"s{i + 1}", "narration": n}
+                                    for i, n in enumerate(narrations)]}
+                path = cls.tmp / f"example{number}-{preset}.json"
+                path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+                cls.runs[number, preset] = run(base + [
+                    "preview", str(path), str(scenes),
+                    "--out", str(cls.tmp / f"out{number}-{preset}")])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def assert_previewed(self, number):
+        for preset in ("explainer", "short"):
+            code, data = self.runs[number, preset]
+            self.assertEqual(code, 0, (preset, data))
+            self.assertEqual([s["status"] for s in data["scenes"]], ["ok", "ok"], data)
+            for scene in data["scenes"]:
+                self.assertTrue(Path(scene["frame"]).is_file(), scene)
+
+    def test_continuity_example_renders(self):
+        self.assert_previewed(4)
+
+    def test_counting_number_example_renders(self):
+        self.assert_previewed(5)
 
 
 SCENES_CARRY = '''

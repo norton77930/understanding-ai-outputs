@@ -1,3 +1,3 @@
 interface:
   display_name: "Video Explainer"
-  short_description: "Turn a topic or AI output into a short narrated explainer video"
+  short_description: "Turn a topic or AI output into a narrated explainer video"
