@@ -36,3 +36,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the styled skeleton with a bare one so that the agent designs each page for its topic; the page structure and
   state color names are now recommendations, the topic decides the number of key points, and the description also
   triggers on a request for an explanation "in HTML".
+- `ste-writing` skill: new core rule "keep articles (the, a, an)", and "80% STE" or "soft STE" now means relaxed.
+  The eval adds an explain set of four zh-TW topics (`--set explain`) with a blind review page for a two-axis human rating.

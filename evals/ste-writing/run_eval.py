@@ -6,6 +6,9 @@ Usage:
                                          [--dry-run] [--workers N] [--seed S]
                                          [--timeout SECONDS]
                                          [--strictness relaxed|strict]
+    python evals/ste-writing/run_eval.py --set explain [--topics 01,03] [--model MODEL]
+                                         [--dry-run] [--workers N] [--seed S]
+                                         [--timeout SECONDS]
 
 For each passage the harness asks an agent "Rewrite the following text in STE."
 (strict: "... in strict STE.") in two arms (same request in both):
@@ -17,11 +20,18 @@ One judge call per passage sees the original and both outputs in randomized A/B
 order and returns meaning scores (1-5) and the more readable output.
 Raw outputs and the report go to evals/ste-writing/runs/<timestamp>/.
 
+--set explain runs the explain topics in explain/ instead: both arms get the
+topic's request (for example "用 STE 解釋：..."), the answers are measured where
+the checker applies, and runs/<timestamp>/review.html shows both answers per
+topic in a random A/B order for a blind human rating. No judge. The A/B key is
+only in report.json. Exit code: 0 = all answers present, 2 = a call failed.
+
 See evals/ste-writing/README.md for the isolation flags and the thresholds.
 Python standard library only. Exit code: 0 = PASS, 1 = FAIL, 2 = incomplete/error.
 """
 
 import argparse
+import html
 import json
 import random
 import os
@@ -30,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +48,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 PASSAGES_DIR = HERE / "passages"
+EXPLAIN_DIR = HERE / "explain"
 RUNS_DIR = HERE / "runs"
 CHECKER = REPO_ROOT / "skills" / "ste-writing" / "scripts" / "ste_check.py"
 REPLACEMENTS = REPO_ROOT / "skills" / "ste-writing" / "references" / "replacements.md"
@@ -47,6 +59,7 @@ REQUESTS = {"relaxed": "Rewrite the following text in STE.",
             "strict": "Rewrite the following text in strict STE."}
 STRICTNESS = tuple(REQUESTS)
 ARMS = ("with-skill", "baseline")
+SETS = ("rewrite", "explain")
 
 # Relaxed acceptance thresholds (issue #3). Strict adds zero replacement-list
 # hits in the with-skill arm.
@@ -323,6 +336,162 @@ def _blockquote(text):
 
 
 # --------------------------------------------------------------------------
+# Explain set: pure logic (unit-tested in test_run_eval.py)
+# --------------------------------------------------------------------------
+
+def _section(text, title):
+    m = re.search(rf"^## {re.escape(title)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    return m.group(1).strip() if m else None
+
+
+def parse_explain_topic(topic_id, text):
+    """Read the language, the request, the optional context and the "Reader should understand" bullets."""
+    lang = re.search(r"^- Language:\s*(\S+)", text, re.M)
+    request = _section(text, "Request")
+    if not (lang and request):
+        raise ValueError(f"explain topic {topic_id}: missing Language or Request")
+    points = [line[2:].strip() for line in (_section(text, "Reader should understand") or "").splitlines()
+              if line.startswith("- ")]
+    return {"id": topic_id, "lang": lang.group(1), "request": request,
+            "context": _section(text, "Context") or None, "points": points}
+
+
+def explain_prompt(topic):
+    """The explain request, then the context if any. Both arms get the same one."""
+    parts = [topic["request"].strip()] + ([topic["context"].strip()] if topic.get("context") else [])
+    return "\n\n".join(parts) + "\n"
+
+
+def ab_orders(topic_ids, seed):
+    """{topic: [arm shown as A, arm shown as B]}, random per topic, repeatable by seed."""
+    return {tid: list(judge_order(seed, tid)) for tid in topic_ids}
+
+
+def explain_aggregate(results):
+    """Per-arm figures for the explain set: answers, cost, agent time, and the
+    checker totals pooled over the answers that have metrics (English only)."""
+    agg = {}
+    for arm in ARMS:
+        entries = [r["arms"][arm] for r in results]
+        measured = [e["totals"] for e in entries if e.get("totals")]
+        sentences = sum(t["sentences"] for t in measured)
+        over = sum(t["over_limit"] for t in measured)
+        passive = sum(t["passive"] for t in measured)
+        progressive = sum(t["progressive"] for t in measured)
+        agg[arm] = {
+            "answers": sum(1 for e in entries if e.get("output")),
+            "measured": len(measured),
+            "sentences": sentences, "over_limit": over, "passive": passive, "progressive": progressive,
+            "over_limit_ratio": over / sentences if sentences else None,
+            "passive_progressive_ratio": (passive + progressive) / sentences if sentences else None,
+            "cost_usd": round(sum((e.get("meta") or {}).get("cost_usd") or 0 for e in entries), 4),
+            "seconds": round(sum(e.get("seconds") or 0 for e in entries), 1),
+        }
+    return agg
+
+
+def review_entries(results, orders):
+    """Blind entries for the review page: the answers under A/B labels, no arm names."""
+    return [{"id": r["id"], "lang": r["lang"], "points": r["points"],
+             "answers": {label: r["arms"][arm].get("output")
+                         for label, arm in zip(("A", "B"), orders[r["id"]])}}
+            for r in results]
+
+
+REVIEW_CSS = """
+body{font-family:system-ui,sans-serif;margin:1rem;background:#f4f4f4;color:#111;line-height:1.6}
+section{background:#fff;border:1px solid #ccc;border-radius:6px;padding:1rem;margin-bottom:2rem}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem;align-items:start}
+.answer{white-space:pre-wrap;border:1px solid #999;border-radius:4px;padding:.8rem;background:#fafafa}
+h3{margin:.5rem 0}.missing{color:#a00}
+table.rate{border-collapse:collapse;margin:.5rem 0}
+table.rate th,table.rate td{border:1px solid #999;padding:.4rem .8rem;min-width:6rem;text-align:left}
+"""
+
+# Rating instructions, Traditional Chinese (Taiwan), English axis names in parentheses.
+REVIEW_INTRO = (
+    "<p>每個主題請比較回答 A 和回答 B。兩個回答收到的要求相同（「用 STE 解釋：……」）。"
+    "A/B 的順序在每個主題都是隨機的，對照表只在 report.json。評分完成前，請不要打開 run 資料夾裡的其他檔案。</p>"
+    "<p>每個回答各打兩個分數，各為 1 到 5 分（1 = 很差，5 = 很好）：</p>"
+    "<ul><li><strong>理解（Understanding）</strong>：讀完這個回答後，"
+    "你對該主題「讀者應該理解」的各個重點理解了多少。</li>"
+    "<li><strong>好讀（Readability）</strong>：句子是否簡短、清楚，用詞是否一致，"
+    "讀起來是否不費力。</li></ul>"
+    "<p>最後選出該主題中較好的回答：A、B 或平手（tie）。"
+    "把分數填進 RESULTS.md 的表格，之後再用 report.json 的 ab_key 對照 A、B 各是哪一組。</p>"
+)
+
+
+def render_review(entries, timestamp):
+    """Blind review page, in Traditional Chinese (Taiwan). entries: review_entries() output.
+    Per topic: the points, a two-axis rating table (理解, 好讀) for A and B, the better-answer
+    line, then answers A and B as plain text. Only A and B labels appear, never arm names."""
+    esc = html.escape
+    out = ["<!doctype html>", '<html lang="zh-TW"><head><meta charset="utf-8">',
+           '<meta name="viewport" content="width=device-width, initial-scale=1">',
+           f"<title>ste-writing 解釋盲測評分 {esc(timestamp)}</title><style>{REVIEW_CSS}</style></head><body>",
+           f"<h1>ste-writing 解釋盲測評分（{esc(timestamp)}）</h1>", REVIEW_INTRO]
+    for e in entries:
+        out.append(f"<section><h2>{esc(e['id'])}（{esc(e['lang'])}）</h2>")
+        if e["points"]:
+            out.append("<p>讀者應該理解（Reader should understand）：</p><ul>"
+                       + "".join(f"<li>{esc(p)}</li>" for p in e["points"]) + "</ul>")
+        out.append('<table class="rate"><tr><th></th><th>理解（Understanding），1-5</th>'
+                   "<th>好讀（Readability），1-5</th></tr>"
+                   + "".join(f"<tr><th>回答 {label}</th><td></td><td></td></tr>" for label in ("A", "B"))
+                   + "</table>")
+        out.append("<p>較好的回答（Better answer）：A / B / 平手（tie）：______</p>")
+        out.append('<div class="pair">')
+        for label in ("A", "B"):
+            text = e["answers"].get(label)
+            body = (f'<div class="answer">{esc(text.strip())}</div>' if text
+                    else '<p class="missing">沒有回答</p>')
+            out.append(f"<div><h3>回答 {label}</h3>{body}</div>")
+        out.append("</div></section>")
+    out.append("</body></html>")
+    return "\n".join(out) + "\n"
+
+
+def render_explain_report(meta, results, agg):
+    """Render report.md for the explain set: per-arm figures, not the answers or the A/B key."""
+    out = [f"# ste-writing explain eval report ({meta['timestamp']})\n",
+           f"- Model: {meta['model'] or 'claude CLI default'}",
+           f"- claude version: {meta['claude_version']}",
+           f"- Topics: {', '.join(r['id'] for r in results)}",
+           f"- Review page: `{meta['review']}` (A/B key in report.json only; seed {meta['seed']})",
+           "- No verdict: the maintainer rates the answers on the review page.\n",
+           "## Per arm\n",
+           "| Arm | Answers | Measured (English) | Sentences | Over-limit ratio | Passive+progressive ratio "
+           "| Cost | Agent time |",
+           "|---|---|---|---|---|---|---|---|"]
+    for arm in ARMS:
+        a = agg[arm]
+        out.append(f"| {arm} | {a['answers']}/{len(results)} | {a['measured']} | {a['sentences']} | "
+                   f"{fmt_ratio(a['over_limit_ratio'])} | {fmt_ratio(a['passive_progressive_ratio'])} | "
+                   f"${a['cost_usd']:.2f} | {a['seconds']:.0f} s |")
+    out += ["\n## Per topic and arm\n",
+            "| Topic | Arm | Metrics | Sentences | Over limit | Passive | Progressive | Turns | Cost | Wall time |",
+            "|---|---|---|---|---|---|---|---|---|---|"]
+    for r in results:
+        for arm in ARMS:
+            a = r["arms"][arm]
+            t, m = a.get("totals"), a.get("meta") or {}
+            if t:
+                cells = ["available", t["sentences"], t["over_limit"], t["passive"], t["progressive"]]
+            else:
+                cells = ["metrics not available" if a.get("output") else "no answer"] + ["n/a"] * 4
+            cost = m.get("cost_usd")
+            cells += [m.get("num_turns", "n/a"), "n/a" if cost is None else f"${cost:.2f}",
+                      "n/a" if a.get("seconds") is None else f"{a['seconds']:.0f} s"]
+            out.append(f"| {r['id']} | {arm} | " + " | ".join(str(c) for c in cells) + " |")
+    errors = [(r["id"], arm, e) for r in results for arm in ARMS for e in r["arms"][arm].get("errors") or []]
+    if errors:
+        out.append("\n## Errors\n")
+        out += [f"- {tid} / {arm}: {e}" for tid, arm, e in errors]
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------
 # Running claude and the checker
 # --------------------------------------------------------------------------
 
@@ -445,6 +614,89 @@ def process_passage(passage_id, original, args, claude_exe, run_dir):
     return result
 
 
+def load_explain_topics(selected):
+    files = sorted(EXPLAIN_DIR.glob("0*.md"))
+    topics = [parse_explain_topic(p.stem, p.read_text(encoding="utf-8")) for p in files]
+    if selected:
+        wanted = [s.strip() for s in selected.split(",") if s.strip()]
+        topics = [t for t in topics if any(t["id"] == w or t["id"].startswith(w) for w in wanted)]
+        if not topics:
+            raise SystemExit(f"no explain topic matches --topics {selected!r}")
+    return topics
+
+
+def process_explain_arm(topic, arm, args, claude_exe, run_dir):
+    """One explain answer: run the arm, save it, measure it. Returns the arm entry."""
+    entry = {"output": None, "totals": None, "metrics": None, "meta": None, "seconds": None, "errors": []}
+    start = time.monotonic()
+    try:
+        text, meta = run_claude(build_cmd(claude_exe, arm, args.model), explain_prompt(topic), args.timeout)
+        entry["seconds"] = round(time.monotonic() - start, 1)
+        entry["output"], entry["meta"] = text, meta
+        (run_dir / f"{topic['id']}.{arm}.txt").write_text(text + "\n", encoding="utf-8")
+        metrics = measure(text, "relaxed")
+        entry["metrics"] = metrics
+        entry["totals"] = metrics["totals"] if metrics.get("metrics_available") else None
+    except Exception as exc:  # keep going; the report marks the gap
+        if entry["seconds"] is None:
+            entry["seconds"] = round(time.monotonic() - start, 1)
+        entry["errors"].append(str(exc))
+    return entry
+
+
+def run_explain(args, claude_exe, timestamp):
+    """The explain set: both arms per topic, blind review page, report. Returns the exit code."""
+    topics = load_explain_topics(args.topics)
+    if args.dry_run:
+        print(f"cwd: {SCRATCH_CWD}")
+        for t in topics:
+            for arm in ARMS:
+                print(f"[{t['id']}] {arm}: {' '.join(build_cmd(claude_exe, arm, args.model))}")
+            print(f"[{t['id']}] stdin: {explain_prompt(t)!r}")
+        print(f"checker: {' '.join(checker_cmd('relaxed'))}")
+        print(f"review: runs/<timestamp>/review.html (A/B order seed {args.seed})")
+        return 0
+
+    run_dir = RUNS_DIR / timestamp
+    run_dir.mkdir(parents=True)
+    print(f"Run folder: {run_dir}", flush=True)
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {(t["id"], arm): pool.submit(process_explain_arm, t, arm, args, claude_exe, run_dir)
+                   for t in topics for arm in ARMS}
+        results = []
+        for t in topics:
+            r = {"id": t["id"], "lang": t["lang"], "request": t["request"], "context": t["context"],
+                 "points": t["points"], "arms": {}}
+            for arm in ARMS:
+                a = futures[(t["id"], arm)].result()
+                r["arms"][arm] = a
+                print(f"done {t['id']}/{arm} in {a['seconds']:.0f} s"
+                      + (f" (errors: {len(a['errors'])})" if a["errors"] else ""), flush=True)
+            results.append(r)
+
+    orders = ab_orders([r["id"] for r in results], args.seed)
+    review = run_dir / "review.html"
+    review.write_text(render_review(review_entries(results, orders), timestamp), encoding="utf-8")
+    agg = explain_aggregate(results)
+    meta = {"timestamp": timestamp, "set": "explain", "model": args.model, "seed": args.seed,
+            "claude_version": claude_version(claude_exe), "isolation_flags": ISOLATION_FLAGS,
+            "review": str(review)}
+    (run_dir / "report.md").write_text(render_explain_report(meta, results, agg), encoding="utf-8")
+    (run_dir / "report.json").write_text(
+        json.dumps({"meta": meta, "aggregate": agg,
+                    "ab_key": {tid: {"A": o[0], "B": o[1]} for tid, o in orders.items()},
+                    "topics": results}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for arm in ARMS:
+        a = agg[arm]
+        print(f"{arm}: {a['answers']}/{len(results)} answers, cost ${a['cost_usd']:.2f}, {a['seconds']:.0f} s")
+    print(f"Report: {run_dir / 'report.md'}")
+    print(f"Review: {review}")
+    errors = [(r["id"], arm, e) for r in results for arm in ARMS for e in r["arms"][arm]["errors"]]
+    for tid, arm, e in errors:
+        print(f"error [{tid}/{arm}]: {e}", file=sys.stderr)
+    return 2 if errors else 0
+
+
 def claude_version(claude_exe):
     try:
         proc = subprocess.run([claude_exe, "--version"], capture_output=True, text=True, timeout=60)
@@ -455,20 +707,30 @@ def claude_version(claude_exe):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run the ste-writing eval.")
-    parser.add_argument("--passages", help="comma-separated passage ids or number prefixes, e.g. 01,03")
+    parser.add_argument("--set", choices=SETS, default="rewrite", dest="eval_set",
+                        help="rewrite (default): passages, LLM judge, verdict; "
+                             "explain: explain topics, blind review page for a human rating")
+    parser.add_argument("--passages", help="rewrite set: comma-separated passage ids or number prefixes, e.g. 01,03")
+    parser.add_argument("--topics", help="explain set: comma-separated topic ids or number prefixes, e.g. 01,03")
     parser.add_argument("--model", help="model alias or name passed to claude --model (default: CLI default)")
     parser.add_argument("--dry-run", action="store_true", help="print the commands and exit; call nothing")
     parser.add_argument("--workers", type=int, default=4, help="parallel passages (default 4)")
-    parser.add_argument("--seed", default=None, help="seed for the judge A/B order (default: timestamp)")
+    parser.add_argument("--seed", default=None, help="seed for the judge or review A/B order (default: timestamp)")
     parser.add_argument("--timeout", type=int, default=600, help="seconds per claude call (default 600)")
     parser.add_argument("--strictness", choices=STRICTNESS, default="relaxed",
                         help="relaxed (default) or strict: changes the request, the checker call and the gates")
     args = parser.parse_args(argv)
+    if args.eval_set == "explain" and (args.passages or args.strictness != "relaxed"):
+        parser.error("--set explain takes --topics; --passages and --strictness apply to the rewrite set only")
+    if args.eval_set == "rewrite" and args.topics:
+        parser.error("--topics applies to --set explain only")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     args.seed = args.seed or timestamp
-    passages = load_passages(args.passages)
     claude_exe = shutil.which("claude") or "claude"
+    if args.eval_set == "explain":
+        return run_explain(args, claude_exe, timestamp)
+    passages = load_passages(args.passages)
 
     if args.dry_run:
         print(f"cwd: {SCRATCH_CWD}")
