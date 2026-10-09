@@ -19,7 +19,7 @@ Each step is its own skill. Install only the ones you need.
 | --- | --- | --- |
 | `ste-writing` | Writes or rewrites text in a relaxed Simplified Technical English style | Available in the next release |
 | `diagram-explainer` | Turns a topic or an answer into one to three small Mermaid diagrams (flowchart, sequence, state) with a caption | Available in the next release |
-| `html-explainer` | Explains output as an interactive web page | Planned |
+| `html-explainer` | Turns a topic or an answer into one self-contained interactive web page | Available in the next release |
 | `video-explainer` | Turns a topic or an answer into a short narrated video (MP4, captions, script) | Available in the next release |
 
 `ste-writing` is inspired by ASD-STE100. It is not official and is not endorsed by ASD. The skill uses its own
@@ -56,6 +56,23 @@ Mermaid code in the reply, and `diagram.mmd` and `caption.md` in `out/diagram-ex
   a browser, you still get the checked Mermaid source.
 - Labels follow the STE principles. They are inspired by ASD-STE100, are not official and are not endorsed by ASD.
 - D2 or Graphviz only when you ask for them and have them installed.
+
+## Using html-explainer
+
+Ask for an interactive page explicitly, for example "make an interactive page that explains binary search" or
+"做一個互動網頁說明 TCP 三次握手". The skill picks an interaction that fits the idea (step-through, slider, layer toggles
+or reveal) and writes one `index.html` in `out/html-explainer/<slug>/`. Open it with a double-click: no build, no
+server, no install.
+
+- The page has no external resources by default. A library, if necessary, comes only from cdnjs, jsDelivr or unpkg at a
+  pinned version.
+- The page fits a 390 px phone screen, follows your light or dark system setting and works with the keyboard.
+- A static check (Python standard library) runs on every page. A render check then loads the page in a headless
+  browser, fails on console errors or horizontal scroll, and saves phone and desktop screenshots in light and dark mode
+  for a layout check.
+- The render check needs [uv](https://docs.astral.sh/uv/) and a Chromium browser: Playwright's Chromium, Google Chrome
+  or Microsoft Edge. It never downloads a browser. Without one, the skill skips the render check and tells you why.
+  Set `PLAYWRIGHT_BROWSERS_PATH` to choose where Playwright's browsers go.
 
 ## Installation
 

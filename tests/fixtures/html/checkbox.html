@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layer toggles</title>
+<style>
+:root { --bg: #ffffff; --fg: #111111; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111111; --fg: #eeeeee; }
+}
+body { background: var(--bg); color: var(--fg); }
+</style>
+</head>
+<body>
+<h1>Layer toggles</h1>
+<label><input id="ip" type="checkbox" checked> IP</label>
+<label><input id="tcp" type="checkbox" checked> TCP</label>
+</body>
+</html>

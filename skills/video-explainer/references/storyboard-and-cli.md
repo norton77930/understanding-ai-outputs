@@ -24,9 +24,9 @@
 | `slug` | yes | Lower-case letters, digits and single hyphens. Names the output folder. |
 | `lang` | yes | Narration language tag: `en`, `zh-TW`, or another tag (best effort, see `narration-engines.md`). |
 | `preset` | no | `explainer` (default), `youtube` or `short`. See `output-presets.md`. |
-| `engine` | no | `null` for automatic selection, an engine name (`"kokoro"`, `"edge-tts"`), or `{"name": "kokoro", "voice": "zf_001"}`. The `silent` engine is for tests only. |
+| `engine` | no | `null` for automatic selection, an engine name (`"kokoro"`, `"edge-tts"`), or `{"name": "kokoro", "voice": "zf_001"}`. The object form needs `name`; a voice alone is an error. The `silent` engine is for tests only. |
 | `scenes` | yes | Non-empty list, in play order. |
-| `scenes[].id` | yes | Unique. Also the function name in the scenes module. |
+| `scenes[].id` | yes | Unique. Also the function name in the scenes module and the frame file name. Lower-case letters, digits and underscores, not starting with a digit (`s1`, `intro`). Not a Python keyword or a Windows device name (`con`, `nul`, `com1`). |
 | `scenes[].narration` | yes | The spoken text of the scene. |
 | `scenes[].fallback` | no | `true` replaces the scene with a title and 2 to 4 bullets from its narration. Set it after three failed fixes of a render error. The scenes module then needs no function for this id. |
 | `scenes[].title` | no | Heading for the fallback scene. Default: the first clause of the narration. |
@@ -38,7 +38,7 @@ The scenes module can also map ids to functions with a module-level `SCENES = {"
 
 | Command | Run with | Needs |
 | --- | --- | --- |
-| `doctor.py [--quick]` | `python` | Standard library |
+| `doctor.py [--quick]` | `python` | Standard library. Without `--quick` it installs ManimCE into the uv cache. |
 | `make_video.py plan STORYBOARD [--out DIR] [--offline]` | `python` | Standard library, no network |
 | `make_video.py fetch-models SET [SET ...]` | `python` | Network. Sets: `kokoro-en`, `kokoro-zh` |
 | `make_video.py preview STORYBOARD SCENES [--out DIR]` | `uv run` | uv, ffmpeg, ffprobe, ManimCE (installed by uv) |
@@ -49,15 +49,15 @@ Each command prints one JSON object on stdout. Progress and library output go to
 Exit codes:
 
 - `0`: success.
-- `1`: a check failed. Fix the input. Examples: invalid storyboard, missing scene function, no engine for the language, or scene code raised during `preview` or `final`.
-- `2`: an environment or runtime problem. Examples: missing uv, ffmpeg or ffprobe (listed in `missing_tools` with install hints), missing model files, a render failure outside scene code. Stop and show it to the user.
+- `1`: a check failed. Fix the input. Examples: invalid storyboard, missing scene function, no engine for the language, a scenes module that fails to import (also an `ImportError` such as `from manim import ShowCreation`), or scene code raised during `preview` or `final`.
+- `2`: an environment or runtime problem. Examples: missing uv, ffmpeg or ffprobe (listed in `missing_tools` with install hints), ManimCE not installed (run with `uv run`), missing or wrong-size model files, an ffmpeg or ffprobe call that ran longer than 120 seconds, a render failure outside scene code, or an unexpected internal error (then also `error` and `type`). Stop and show it to the user.
 
 On exit 1 or 2, `errors` is a list of messages.
 
 ## Doctor JSON
 
 - `ready`: `true` when uv, ffmpeg and ffprobe are present. Exit 0 when ready, 2 otherwise.
-- `capabilities`: `uv`, `ffmpeg`, `ffprobe`, `manim`, `kokoro_models`, `edge_tts_network`. Each is `{"available", "hint"}`. With `--quick`, the `manim` and network probes add `"skipped": true`.
+- `capabilities`: `uv`, `ffmpeg`, `ffprobe`, `manim`, `kokoro_models`, `edge_tts_network`. Each is `{"available", "hint"}`. With `--quick`, the `manim` and network probes add `"skipped": true`, and the `manim` hint states the install size. The full `manim` probe uses the same Python and ManimCE pins as `make_video.py`.
 - `font`, `font_path`, `font_hint`: the Traditional Chinese font that scenes use (Microsoft JhengHei, then PingFang TC, then Noto Sans CJK TC), or `null` with an install hint.
 - `cache_dir`: where model files live.
 
@@ -67,7 +67,7 @@ On exit 1 or 2, `errors` is a list of messages.
 - `engine`: `name`, `voice`, `reason`, `fallback` (the offline engine for zh-TW, or `null`).
 - `network`: `"offline"` or `"not checked"`. `plan` never connects. Use `--offline` (or `VIDEO_EXPLAINER_OFFLINE=1`) when the doctor reported no network.
 - `notices`: messages for the user. Show every one.
-- `downloads`: missing model files, each `{"name", "url", "size_mb", "set"}`.
+- `downloads`: missing model files, each `{"name", "url", "size_mb", "set", "fallback"}`. `fallback` is `true` for files that only the run-time fallback engine needs (Kokoro Chinese when edge-tts is unreachable for zh-TW).
 - `scenes[]`: `id`, `narration`, `units` (`hanzi`, `words`), `estimated_seconds`, `captions`, `fallback`, `flagged`.
 - `estimated_total_seconds`; `estimated_render_seconds` (`preview`, `final`, wall-clock seconds).
 - `cache_dir`, `out_dir`. `plan` also writes `plan.json` to `out_dir`.

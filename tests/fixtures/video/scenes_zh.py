@@ -16,6 +16,7 @@ def s1(ctx):
     ctx.layout.fit(boxes, ctx.layout.content)
     caption = ctx.caption("八個格子，找一個數字")
     STATE.update(boxes=boxes, caption=caption)
+    ctx.carry(boxes, caption)
     ctx.beats([
         (FadeIn(title), 1),
         (Create(boxes), 2),
