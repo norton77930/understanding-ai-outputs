@@ -405,10 +405,26 @@ body{font-family:system-ui,sans-serif;margin:1rem;background:#f4f4f4;color:#111;
 section{background:#fff;border:1px solid #ccc;border-radius:6px;padding:1rem;margin-bottom:2rem}
 .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem;align-items:start}
 .answer{white-space:pre-wrap;border:1px solid #999;border-radius:4px;padding:.8rem;background:#fafafa}
+.answer.rendered{white-space:normal}
+.answer.rendered pre{white-space:pre-wrap;background:#eee;padding:.5rem;border-radius:4px}
+.answer.rendered code{background:#eee;padding:0 .2rem;border-radius:3px}
+.answer.rendered table{border-collapse:collapse}
+.answer.rendered th,.answer.rendered td{border:1px solid #999;padding:.2rem .5rem}
 h3{margin:.5rem 0}.missing{color:#a00}
 table.rate{border-collapse:collapse;margin:.5rem 0}
 table.rate th,table.rate td{border:1px solid #999;padding:.4rem .8rem;min-width:6rem;text-align:left}
 """
+
+# The answers are Markdown. The page keeps the escaped text as the fallback and, when the
+# pinned libraries load, renders it the way a chat client would, sanitized.
+REVIEW_MARKDOWN_JS = (
+    '<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>'
+    '<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>'
+    "<script>document.addEventListener('DOMContentLoaded',function(){"
+    "if(!window.marked||!window.DOMPurify)return;"
+    "document.querySelectorAll('.answer').forEach(function(el){"
+    "el.innerHTML=DOMPurify.sanitize(marked.parse(el.textContent));el.classList.add('rendered');});});</script>"
+)
 
 # Rating instructions, Traditional Chinese (Taiwan), English axis names in parentheses.
 REVIEW_INTRO = (
@@ -450,6 +466,7 @@ def render_review(entries, timestamp):
                     else '<p class="missing">沒有回答</p>')
             out.append(f"<div><h3>回答 {label}</h3>{body}</div>")
         out.append("</div></section>")
+    out.append(REVIEW_MARKDOWN_JS)
     out.append("</body></html>")
     return "\n".join(out) + "\n"
 
