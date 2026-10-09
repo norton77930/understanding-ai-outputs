@@ -2,41 +2,45 @@
 
 Newest run first. The earlier run is kept below as history: it was scored by an LLM judge reading source text, which the next run does not use, so its figures are not comparable with the blind two-axis ratings.
 
-## Next run (round 2 topics, blind two-axis rating) - not run yet
+## Run 20261009-092505 (round 2 topics, blind two-axis rating)
 
-Waiting for maintainer approval of the round-2 topics (`topics/README.md`, issue #47) and for the skill changes of issue #46. Fill this section after the run; leave the rating columns empty until the maintainer has rated `review.html`.
-
-Run `<timestamp>` (`<date>`). Model: `<model>`. `claude` `<version>`. Workers `<n>`, timeout `<s>` s per call, A/B seed `<seed>`. Command: `python evals/diagram-explainer/run_eval.py --plugin-dir <dir>`. Full report: `evals/diagram-explainer/runs/<timestamp>/report.md` (git-ignored, local only).
+Run `20261009-092505` (2026-10-09). Model: claude CLI default. `claude` 2.1.295. Workers 4, timeout 900 s per call, A/B seed `20261009-092505`. Command: `python evals/diagram-explainer/run_eval.py` (plugin dir: the `feat/diagram-explainer` worktree after #46, `a53ca14`). Full report: `evals/diagram-explainer/runs/20261009-092505/report.md` (git-ignored, local only).
 
 ### Automated metrics
 
-- with-skill: checker pass `<n>`/4, rendered `<n>`/4, label overruns `<n>`, images `<n>`/4, cost `$<x>`, `<s>` s agent time.
-- baseline: checker pass `<n>`/4 (`<n>` answered in Mermaid), label overruns `<n>`, images `<n>`/4, cost `$<x>`, `<s>` s agent time.
-- Total: cost `$<x>`, agent time `<s>` s, wall time `<s>` s.
+- with-skill: checker pass 4/4, rendered 4/4, label overruns 0, images 4/4, cost $1.57, 514 s agent time.
+- baseline: checker pass 1/4 (3 answered in Mermaid, 1 hand-written SVG), label overruns 2, images 4/4, cost $0.76, 238 s agent time.
+- Total: cost $2.33, agent time 752 s, wall time 276 s.
 
-| Topic | Lang | Expected type | Arm | Format / type | Checker (issues) | Nodes | Label overruns | Render | Image (PNG) | Turns | Cost | Wall time |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 01-card-payment | zh-TW | sequenceDiagram | with-skill | | | | | | | | | |
-| | | | baseline | | | | | | | | | |
-| 02-delivery-order | zh-TW | stateDiagram-v2 | with-skill | | | | | | | | | |
-| | | | baseline | | | | | | | | | |
-| 03-video-processing | zh-TW | flowchart LR | with-skill | | | | | | | | | |
-| | | | baseline | | | | | | | | | |
-| 04-kubernetes-structure | zh-TW | flowchart with subgraph | with-skill | | | | | | | | | |
-| | | | baseline | | | | | | | | | |
+| Topic | Arm | Diagrams (from) | Type (expected) | Checker | Issues | Nodes | Messages | Label overruns | Render | Images | Turns | Cost | Time |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 01-card-payment | with-skill | 1 (file) | sequenceDiagram (ok) | PASS | 0 | 4 | 11 | 0 | ok | 1 | 14 | $0.52 | 167 s |
+| 01-card-payment | baseline | 1 (reply) | sequenceDiagram (ok) | FAIL | 1 | 4 | 12 | 1 | ok | 1 | 2 | $0.10 | 25 s |
+| 02-delivery-order | with-skill | 1 (file) | stateDiagram-v2 (ok) | PASS | 0 | 6 | n/a | 0 | ok | 1 | 11 | $0.31 | 124 s |
+| 02-delivery-order | baseline | 1 (reply) | stateDiagram-v2 (ok) | PASS | 0 | 6 | n/a | 0 | ok | 1 | 2 | $0.11 | 27 s |
+| 03-video-processing | with-skill | 1 (file) | flowchart LR (ok) | PASS | 0 | 13 | n/a | 0 | ok | 1 | 11 | $0.42 | 106 s |
+| 03-video-processing | baseline | 1 (reply) | flowchart TD (expected flowchart LR) | FAIL | 1 | 9 | n/a | 1 | ok | 1 | 2 | $0.22 | 58 s |
+| 04-kubernetes-structure | with-skill | 1 (file) | flowchart LR (expected flowchart) | PASS | 0 | 11 | n/a | 0 | ok | 1 | 11 | $0.31 | 117 s |
+| 04-kubernetes-structure | baseline | 1 (file) | svg (expected flowchart) | n/a | n/a | n/a | n/a | n/a | n/a | 1 | 4 | $0.33 | 127 s |
 
 ### Maintainer ratings (blind, two axes)
 
-Open `evals/diagram-explainer/runs/<timestamp>/review.html` (local, git-ignored). Per topic it shows the "Reader should understand" points and image A and image B in a random order. Rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then look up the key in `report.json` (`ab_key`) to fill the last column.
+Open `evals/diagram-explainer/runs/20261009-092505/review.html` (local, git-ignored). Per topic it shows the "Reader should understand" points and image A and image B in a random order. Rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then look up the key in `report.json` (`ab_key`) to fill the last column.
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-card-payment | | | | | | | |
-| 02-delivery-order | | | | | | | |
-| 03-video-processing | | | | | | | |
-| 04-kubernetes-structure | | | | | | | |
+| 01-card-payment | 5 | 4 | 5 | 5 | B |  | A |
+| 02-delivery-order | 5 | 4 | 5 | 5 | B |  | B |
+| 03-video-processing | 5 | 5 | 5 | 5 | tie | about the same | B |
+| 04-kubernetes-structure | 5 | 5 | 5 | 4 | A |  | A |
+
+**Result: the skill won 2, tied 1 and lost 1.** With-skill 5/4 (01), 5/5 (02), 5/5 (03), 5/5 (04); baseline 5/5, 5/4, 5/5, 5/4. Understanding 5 everywhere in both arms. Presentation mean: with-skill 4.75 (first run 3.75), baseline 4.5 (first run 4.75). Better: baseline on 01, the with-skill diagram on 02 and 04, tie on 03.
 
 ### Observations from this run
+
+- The baseline answered in Mermaid on 3 of 4 topics this time (hand-written SVG only on 04); two of those failed the checker on label length, and 03 came out as `flowchart TD` for a pipeline.
+- The with-skill arm used `flowchart LR` for 04 (a containment topic, expected a subgraph flowchart; it did use subgraphs) and stayed within the soft size limits except 03 (13 nodes, a warning only).
+- The with-skill arm costs about twice the baseline ($1.57 vs $0.76): it saves files, checks, renders and runs a layout check.
 
 - <fill after the run>
 
