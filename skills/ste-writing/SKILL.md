@@ -7,7 +7,7 @@ description: Write or rewrite text in Simplified Technical English (STE) style. 
 
 Write in a controlled, easy-to-read style so the reader spends effort on the ideas, not on the sentences. This skill is inspired by ASD-STE100. It is not official and is not endorsed by ASD.
 
-There are two strictness levels. **Relaxed** is the default: the core rules below, in natural wording. English relaxed output carries no label or note about the style. **Strict** is only for a user who asks for "strict STE" or "full STE". It adds the rules in "Strict strictness" below. Full rules with before/after examples are in `references/rules.md`. Read it when a case is unclear.
+There are two strictness levels. **Relaxed** is the default: the core rules below, in natural wording. A request for "80% STE" or "soft STE" means relaxed. English relaxed output carries no label or note about the style. **Strict** is only for a user who asks for "strict STE" or "full STE". It adds the rules in "Strict strictness" below. Full rules with before/after examples are in `references/rules.md`. Read it when a case is unclear.
 
 ## Two uses
 
@@ -24,6 +24,7 @@ There are two strictness levels. **Relaxed** is the default: the core rules belo
 6. Write procedures as numbered lists, one step per item.
 7. Mark hazards with WARNING (risk of injury) or CAUTION (risk of damage). Put the command first, then the risk.
 8. Keep verb forms simple. Write "The server runs", not "The server is running". The checker counts both forms.
+9. Keep articles ("the", "a", "an"). Do not drop them to save words. Write "Open the file", not "Open file".
 
 Example of rule 3:
 
@@ -84,6 +85,7 @@ Measure the draft, then fix it. The checker in `scripts/ste_check.py` is the sou
    - Does every instruction use active voice?
    - Does every sentence hold one instruction?
    - Does each concept use one term?
+   - English only: are the articles ("the", "a", "an") kept?
    - Does each paragraph hold one topic, in 6 sentences or fewer?
    - Are procedures numbered, and are hazards marked WARNING or CAUTION?
    - Is exempt content unchanged?

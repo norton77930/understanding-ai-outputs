@@ -2,7 +2,7 @@
 
 These rules are inspired by ASD-STE100. They are written in our own words. They are not official, and ASD does not endorse them. They do not include the ASD-STE100 dictionary.
 
-This file holds the full rule set for both strictness levels. `SKILL.md` holds the short version. Relaxed is the default. Strict is only for a user who asks for "strict STE" or "full STE".
+This file holds the full rule set for both strictness levels. `SKILL.md` holds the short version. Relaxed is the default. A request for "80% STE" or "soft STE" means relaxed. Strict is only for a user who asks for "strict STE" or "full STE".
 
 ## Measurement
 
@@ -89,6 +89,14 @@ WARNING: Disconnect the power cable before you open the case. Live parts can cau
 CAUTION: Do not delete the `data/` folder. The app loses all saved records.
 
 Keep the note short. Use WARNING and CAUTION only for real risk, not for general advice.
+
+### 9. Keep articles
+
+Keep "the", "a" and "an". Do not drop them to save words. Text without articles reads like a telegram, and the reader must guess which thing you mean.
+
+Before: "Open config file. Set timeout to 30 seconds. Restart service after change."
+
+After: "Open the config file. Set the timeout to 30 seconds. Restart the service after the change."
 
 ## Strict rules
 
