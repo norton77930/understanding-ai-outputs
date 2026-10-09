@@ -1,6 +1,6 @@
 # Eval topics
 
-Status: DRAFT (round 2) — awaiting maintainer review (issue #47, spec #23 revision 2026-10-09). The first-run topics are kept in `round1/`; the harness reads only `topics/0*.md`.
+Status: APPROVED 2026-10-09 (round 2, issue #47, spec #23 revision 2026-10-09). The first-run topics are kept in `round1/`; the harness reads only `topics/0*.md`.
 
 Four topics for the diagram-explainer eval (issue #26, spec #23), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into a diagram, the expected diagram type, and the points a reader should get from the diagram. The harness gives each one to an agent with a request such as "Make a diagram of the following." and compares the with-skill and baseline outputs.
 
@@ -26,6 +26,6 @@ When you review or change a topic, check it for:
 
 ## Approval
 
-Round 2: not yet approved. Record the approval date and any changes here.
+Round 2: approved by the maintainer on 2026-10-09, no changes.
 
 Round 1 (`round1/`): used in runs `20261008-052951` and `20261008-053511`; never formally approved.
