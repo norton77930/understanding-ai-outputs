@@ -244,52 +244,70 @@ class StateCountTests(unittest.TestCase):
         self.assertEqual(data["counts"], {"states": 4, "transitions": 3})
 
 
-class BudgetTests(unittest.TestCase):
-    def test_default_budgets_are_reported(self):
+def warnings(data):
+    return [w["rule"] for w in data["warnings"]]
+
+
+class SizeWarningTests(unittest.TestCase):
+    """Size limits are soft: over a limit is a warning, not a failure."""
+
+    def test_default_limits_are_reported(self):
         code, data = run(file_arg=FIXTURES / "pass_flowchart.mmd")
         self.assertEqual(data["budgets"], {
-            "max_nodes": 12, "max_participants": 6, "max_messages": 12,
-            "max_label_words": 5, "max_label_chars": 10})
+            "max_nodes": 20, "max_participants": 8, "max_messages": 20,
+            "max_label_words": 5, "max_label_chars": 10,
+            "max_detail_words": 8, "max_detail_chars": 16})
 
-    def test_nodes_at_limit_pass_and_over_limit_fail(self):
-        code, data = run(flow(12))
+    def test_nodes_over_soft_limit_warn_but_pass(self):
+        code, data = run(flow(20))
         self.assertEqual(code, 0, data)
-        code, data = run(flow(13))
-        self.assertEqual(code, 1)
-        self.assertIn("too-many-nodes", rules(data))
-        self.assertFalse(data["pass"])
+        self.assertEqual(data["warnings"], [])
+        code, data = run(flow(21))
+        self.assertEqual(code, 0, data)
+        self.assertTrue(data["pass"])
+        self.assertEqual(data["issues"], [])
+        self.assertEqual(warnings(data), ["too-many-nodes"])
+        self.assertEqual(data["warnings"][0]["line"], 1)
+        self.assertTrue(data["warnings"][0]["message"])
 
-    def test_max_nodes_flag(self):
+    def test_max_nodes_flag_changes_the_warning_limit(self):
         code, data = run(flow(4), "--max-nodes", "3")
-        self.assertEqual(code, 1)
-        self.assertEqual(data["budgets"]["max_nodes"], 3)
-        self.assertIn("too-many-nodes", rules(data))
-        code, data = run(flow(13), "--max-nodes", "13")
         self.assertEqual(code, 0, data)
+        self.assertEqual(data["budgets"]["max_nodes"], 3)
+        self.assertIn("too-many-nodes", warnings(data))
+        code, data = run(flow(21), "--max-nodes", "21")
+        self.assertEqual(data["warnings"], [])
 
-    def test_state_diagram_uses_node_budget(self):
+    def test_state_diagram_uses_node_limit(self):
         text = "stateDiagram-v2\n" + "".join(f"    S{i} --> S{i + 1}\n" for i in range(4))
         code, data = run(text, "--max-nodes", "4")
-        self.assertEqual(code, 1)
-        self.assertIn("too-many-nodes", rules(data))
+        self.assertEqual(code, 0, data)
+        self.assertIn("too-many-nodes", warnings(data))
 
     def test_participants(self):
-        code, data = run(sequence(6, 1))
+        code, data = run(sequence(8, 1))
+        self.assertEqual((code, data["warnings"]), (0, []))
+        code, data = run(sequence(9, 1))
         self.assertEqual(code, 0, data)
-        code, data = run(sequence(7, 1))
-        self.assertEqual(code, 1)
-        self.assertIn("too-many-participants", rules(data))
-        code, data = run(sequence(7, 1), "--max-participants", "7")
-        self.assertEqual(code, 0, data)
+        self.assertIn("too-many-participants", warnings(data))
+        code, data = run(sequence(9, 1), "--max-participants", "9")
+        self.assertEqual(data["warnings"], [])
 
     def test_messages(self):
-        code, data = run(sequence(2, 12))
+        code, data = run(sequence(2, 20))
+        self.assertEqual((code, data["warnings"]), (0, []))
+        code, data = run(sequence(2, 21))
         self.assertEqual(code, 0, data)
-        code, data = run(sequence(2, 13))
+        self.assertIn("too-many-messages", warnings(data))
+        code, data = run(sequence(2, 21), "--max-messages", "21")
+        self.assertEqual(data["warnings"], [])
+
+    def test_warning_does_not_hide_a_failure(self):
+        code, data = run(flow(21) + "    click N1 callback\n")
         self.assertEqual(code, 1)
-        self.assertIn("too-many-messages", rules(data))
-        code, data = run(sequence(2, 13), "--max-messages", "13")
-        self.assertEqual(code, 0, data)
+        self.assertIn("too-many-nodes", warnings(data))
+        self.assertIn("click-callback", rules(data))
+        self.assertNotIn("too-many-nodes", rules(data))
 
     def test_label_words(self):
         code, data = run("flowchart TD\n    A[one two three four five] --> B[ok]\n")
@@ -310,6 +328,127 @@ class BudgetTests(unittest.TestCase):
         code, data = run("flowchart TD\n    A[一二三] --> B[完成]\n", "--max-label-chars", "2")
         self.assertEqual(code, 1)
         self.assertEqual(data["budgets"]["max_label_chars"], 2)
+
+
+class TwoLineLabelTests(unittest.TestCase):
+    """A label is a name line, plus an optional detail line after <br>."""
+
+    def label(self, data, text):
+        found = [lab for lab in data["labels"] if lab["text"] == text]
+        self.assertEqual(len(found), 1, data["labels"])
+        return found[0]
+
+    def test_br_variants_pass_and_split_name_from_detail(self):
+        for br in ("<br>", "<br/>", "<br />", "<BR>"):
+            with self.subTest(br=br):
+                text = f'flowchart LR\n    A["Test{br}runs automated tests"] --> B[Deploy]\n'
+                code, data = run(text)
+                self.assertEqual(code, 0, data)
+                lab = self.label(data, f"Test{br}runs automated tests")
+                self.assertEqual((lab["words"], lab["chars"]), (1, 0))
+                self.assertEqual((lab["detail_words"], lab["detail_chars"]), (3, 0))
+                self.assertFalse(lab["over"])
+
+    def test_one_line_label_has_no_detail(self):
+        code, data = run("flowchart LR\n    A[Build] --> B[Test]\n")
+        lab = self.label(data, "Build")
+        self.assertIsNone(lab["detail_words"])
+        self.assertIsNone(lab["detail_chars"])
+
+    def test_detail_line_limits_for_words(self):
+        ok = 'flowchart LR\n    A["Test<br>one two three four five six seven eight"] --> B\n'
+        code, data = run(ok)
+        self.assertEqual(code, 0, data)
+        over = 'flowchart LR\n    A["Test<br>one two three four five six seven eight nine"] --> B\n'
+        code, data = run(over)
+        self.assertEqual(code, 1)
+        self.assertIn("label-too-long", rules(data))
+        code, data = run(ok, "--max-detail-words", "7")
+        self.assertEqual(code, 1)
+        self.assertEqual(data["budgets"]["max_detail_words"], 7)
+
+    def test_detail_line_limits_for_cjk(self):
+        code, data = run("flowchart LR\n    A[測試<br>一二三四五六七八九十一二三四五六] --> B\n")
+        self.assertEqual(code, 0, data)
+        code, data = run("flowchart LR\n    A[測試<br>一二三四五六七八九十一二三四五六七] --> B\n")
+        self.assertEqual(code, 1)
+        self.assertIn("label-too-long", rules(data))
+        code, data = run("flowchart LR\n    A[測試<br>一二三] --> B\n", "--max-detail-chars", "2")
+        self.assertEqual(code, 1)
+        self.assertEqual(data["budgets"]["max_detail_chars"], 2)
+
+    def test_name_line_keeps_its_own_limit(self):
+        code, data = run('flowchart LR\n    A["one two three four five six<br>ok"] --> B\n')
+        self.assertEqual(code, 1)
+        self.assertIn("label-too-long", rules(data))
+
+    def test_more_than_two_lines_fails(self):
+        code, data = run('flowchart LR\n    A["Test<br>runs tests<br>on Linux"] --> B\n')
+        self.assertEqual(code, 1)
+        self.assertIn("label-too-long", rules(data))
+
+    def test_two_line_labels_in_edges_sequence_and_state(self):
+        for text in ("flowchart LR\n    A -->|pass<br>all green| B\n",
+                     "sequenceDiagram\n    participant B as Browser<br>user tab\n"
+                     "    B->>A: Click Log in<br>sends cookie\n",
+                     'stateDiagram-v2\n    state "Open<br>waits for owner" as Open\n'
+                     "    Open --> Closed : Reject<br>not a bug\n"):
+            with self.subTest(text=text):
+                code, data = run(text)
+                self.assertEqual(code, 0, data)
+                self.assertTrue(any(lab["detail_words"] for lab in data["labels"]),
+                                data["labels"])
+
+
+class StyleSyntaxTests(unittest.TestCase):
+    """Title front matter, classDef, class, ::: and linkStyle are accepted."""
+
+    BODY = ("flowchart LR\n"
+            '    A["Build<br>compiles code"] --> B["Test<br>runs tests"]\n'
+            "    B -->|pass| C[Deploy]:::ok\n"
+            "    B -->|fail| D[Stop]\n"
+            "    classDef ok fill:#d4edda,stroke:#2e7d32,color:#1b3d1f\n"
+            "    classDef bad fill:#f8d7da,stroke:#c62828,color:#5a1414\n"
+            "    class D bad\n"
+            "    class A,B step\n"
+            "    linkStyle 1 stroke:#2e7d32,stroke-width:2px\n"
+            "    linkStyle 2 stroke:#c62828\n"
+            "    subgraph legend [Legend]\n"
+            "        L1[Passed]:::ok\n"
+            "        L2[Failed]:::bad\n"
+            "    end\n")
+
+    def test_flowchart_style_lines_pass_and_add_no_nodes(self):
+        code, data = run("---\ntitle: CI pipeline\n---\n" + self.BODY)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"nodes": 6, "edges": 3, "subgraphs": 1})
+
+    def test_state_diagram_classes_pass_and_add_no_states(self):
+        text = ("---\ntitle: Issue lifecycle\n---\nstateDiagram-v2\n"
+                "    [*] --> Open\n    Open --> Closed : Merge\n"
+                "    Open:::open\n"
+                "    classDef done fill:#d4edda,stroke:#2e7d32,color:#1b3d1f\n"
+                "    classDef open fill:#fff3cd,stroke:#b8860b,color:#4a3800\n"
+                "    class Closed done\n")
+        code, data = run(text)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["counts"], {"states": 2, "transitions": 2})
+        self.assertEqual([lab["text"] for lab in data["labels"]], ["Merge"])
+
+    def test_title_front_matter_on_every_type(self):
+        for body in ("flowchart LR\n    A --> B\n", "sequenceDiagram\n    A->>B: Hi\n",
+                     "stateDiagram-v2\n    [*] --> A\n"):
+            with self.subTest(body=body):
+                code, data = run("---\ntitle: 標題 Title\n---\n" + body)
+                self.assertEqual(code, 0, data)
+
+    def test_init_directive_still_fails_next_to_style(self):
+        code, data = run("%%{init: {'theme': 'forest'}}%%\n" + self.BODY)
+        self.assertEqual(code, 1)
+        self.assertIn("init-directive", rules(data))
+        code, data = run("---\ntitle: T\nconfig:\n  theme: dark\n---\n" + self.BODY)
+        self.assertEqual(code, 1)
+        self.assertIn("init-directive", rules(data))
 
 
 class LabelTests(unittest.TestCase):
@@ -371,12 +510,16 @@ class FragileSyntaxTests(unittest.TestCase):
         return data
 
     def test_html_in_node_label(self):
-        data = self.assertFlags("flowchart TD\n    A[Line<br/>two] --> B\n", "html-in-label")
+        data = self.assertFlags("flowchart TD\n    A[Line <b>two</b>] --> B\n", "html-in-label")
         self.assertEqual([i for i in data["issues"] if i["rule"] == "html-in-label"][0]["line"], 2)
 
     def test_html_in_quoted_label_and_sequence_message(self):
         self.assertFlags('flowchart TD\n    A["<b>Bold</b>"] --> B\n', "html-in-label")
-        self.assertFlags("sequenceDiagram\n    A->>B: Hi<br/>there\n", "html-in-label")
+        self.assertFlags("sequenceDiagram\n    A->>B: Hi <i>there</i>\n", "html-in-label")
+
+    def test_br_is_not_html_in_label(self):
+        code, data = run("flowchart TD\n    A[Line<br/>two] --> B\n")
+        self.assertEqual(code, 0, data)
 
     def test_click_callback(self):
         self.assertFlags("flowchart TD\n    A --> B\n    click A callback\n", "click-callback")
@@ -467,7 +610,9 @@ class InputTests(unittest.TestCase):
 
     def test_output_is_one_json_object_with_expected_keys(self):
         code, data = run(file_arg=FIXTURES / "pass_flowchart.mmd")
-        self.assertEqual(set(data), {"type", "counts", "budgets", "labels", "issues", "pass"})
+        self.assertEqual(set(data), {"type", "counts", "budgets", "labels", "issues",
+                                     "warnings", "pass"})
+        self.assertEqual(data["warnings"], [])
         self.assertIs(data["pass"], True)
         self.assertEqual(data["issues"], [])
 
@@ -481,7 +626,7 @@ class ExitCodeTests(unittest.TestCase):
                 self.assertTrue(data["pass"])
 
     def test_failed_check_exits_1(self):
-        code, data = run(flow(13))
+        code, data = run("flowchart TD\n    A[a b c d e f] --> B\n")
         self.assertEqual(code, 1)
 
     def test_missing_file_exits_2(self):

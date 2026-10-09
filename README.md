@@ -45,9 +45,11 @@ in `out/video-explainer/<slug>/`.
 ## Using diagram-explainer
 
 Ask for a diagram explicitly, for example "draw a diagram of this answer", "show this as a sequence diagram" or
-"畫一張圖說明 git rebase". The skill picks the diagram type from your question, keeps each diagram small (12 nodes, or 6
-participants and 12 messages) with short labels, and adds one caption line that says what to look at. You get the
-Mermaid code in the reply, and `diagram.mmd` and `caption.md` in `out/diagram-explainer/<slug>/`.
+"畫一張圖說明 git rebase". The skill picks the diagram type from your question (a pipeline reads left to right), sizes
+the diagram to the topic and splits it only when the rendered image is hard to read. Each diagram has a title, labels
+with a short name and one detail line, colors with a fixed meaning (for example pass green, fail red) explained by a
+legend, and one caption line that says what to look at. You get the Mermaid code in the reply, and `diagram.mmd` and
+`caption.md` in `out/diagram-explainer/<slug>/`.
 
 - Only `flowchart`, `sequenceDiagram` and `stateDiagram-v2`, in syntax that renders on GitHub and in common tools. A
   stdlib checker script checks every diagram before you see it.

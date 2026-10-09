@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Check Mermaid diagram source: size budgets, label length, fragile syntax.
+"""Check Mermaid diagram source: size, label length, fragile syntax.
 
 Usage:
     python diagram_check.py [FILE|-] [--max-nodes N] [--max-participants N]
                             [--max-messages N] [--max-label-words N]
-                            [--max-label-chars N]
+                            [--max-label-chars N] [--max-detail-words N]
+                            [--max-detail-chars N]
 
 Reads FILE (or stdin when FILE is omitted or "-") and prints one JSON object
 on stdout (UTF-8). Exit code: 0 = pass, 1 = check failed, 2 = usage or input
@@ -14,10 +15,15 @@ Output shape:
     {"type": str | null,
      "counts": {...},
      "budgets": {"max_nodes", "max_participants", "max_messages",
-                 "max_label_words", "max_label_chars"},
-     "labels": [{"text", "words", "chars", "over"}],
+                 "max_label_words", "max_label_chars",
+                 "max_detail_words", "max_detail_chars"},
+     "labels": [{"text", "words", "chars", "detail_words", "detail_chars",
+                 "over"}],
      "issues": [{"rule", "line", "message"}],
+     "warnings": [{"rule", "line", "message"}],
      "pass": bool}
+
+pass is true when issues is empty. Warnings never fail the check.
 
 type is "flowchart" (flowchart and graph), "sequenceDiagram",
 "stateDiagram-v2" (stateDiagram and stateDiagram-v2), or the first word of an
@@ -28,18 +34,22 @@ unsupported diagram (null when there is no diagram). counts depend on the type:
 Unsupported types have an empty counts object.
 
 Labels: node, edge, subgraph, participant alias, message, state and
-transition texts. words counts Latin words, chars counts CJK characters
-(ideographs, kana, hangul). A label is over when words or chars is above its
-budget (exactly the budget is fine). HTML tags and entity codes are ignored
-when measuring.
+transition texts. A label has a name line and an optional detail line,
+separated by <br> (also <br/> and <br />). words and chars measure the name
+line; detail_words and detail_chars measure the detail line (null without
+one). words counts Latin words, chars counts CJK characters (ideographs, kana,
+hangul). A label is over when a line is above its limit (exactly the limit is
+fine) or when it has more than two lines. HTML tags and entity codes are
+ignored when measuring.
+
+Size limits (max_nodes, max_participants, max_messages) are soft: a diagram
+above them gets a warning, not an issue.
 
 Rules (issue "rule" values):
     unsupported-type       no diagram, or a type other than the three above
-    too-many-nodes         nodes (flowchart) or states (state) over --max-nodes
-    too-many-participants  over --max-participants
-    too-many-messages      over --max-messages
-    label-too-long         a label is over the word or character budget
-    html-in-label          an HTML tag in a label
+    label-too-long         a label line is over its word or character limit,
+                           or the label has more than two lines
+    html-in-label          an HTML tag other than <br> in a label
     click-callback         a "click" line
     init-directive         a %%{init ...}%% directive, or config/theme in the
                            front matter
@@ -48,6 +58,14 @@ Rules (issue "rule" values):
                            critical/break/box vs end, or state { } mismatch
     unquoted-label         a flowchart node label with any of ( ) [ ] { } " | ; #
                            that is not wrapped in double quotes
+
+Warnings (warning "rule" values; never a failure):
+    too-many-nodes         nodes (flowchart) or states (state) over --max-nodes
+    too-many-participants  over --max-participants
+    too-many-messages      over --max-messages
+
+Accepted style syntax: a title in the front matter, classDef, class, style,
+linkStyle and the ":::name" class suffix (flowchart and state diagram).
 
 Method (line based and APPROXIMATE, not a Mermaid parser): one statement per
 line (flowchart statements may also be split on ";", including the statements
@@ -65,17 +83,22 @@ from dataclasses import dataclass, field
 EXIT_PASS, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
 
 DEFAULT_BUDGETS = {
-    "max_nodes": 12,
-    "max_participants": 6,
-    "max_messages": 12,
+    "max_nodes": 20,
+    "max_participants": 8,
+    "max_messages": 20,
     "max_label_words": 5,
     "max_label_chars": 10,
+    "max_detail_words": 8,
+    "max_detail_chars": 16,
 }
 
 UNQUOTED_SPECIALS = "()[]{}\"|;#"
+_SPLIT_HINT = "split the diagram only if the layout check shows it is hard to read"
 
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*")
 _HTML_TAG_RE = re.compile(r"</?[A-Za-z][^<>]*>")
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_CLASS_ANY_RE = re.compile(r":::\w+")
 _ENTITY_RE = re.compile(r"#\w+;")
 _HEADER_RE = re.compile(r"^(\S+)")
 _INIT_RE = re.compile(r"^%%\{\s*init(?:ialize)?\b")
@@ -155,6 +178,7 @@ class Report:
         self.budgets = budgets
         self.labels = []
         self.issues = []
+        self.warnings = []
         self._seen = set()
 
     def issue(self, rule, line, message):
@@ -163,22 +187,43 @@ class Report:
             self._seen.add(key)
             self.issues.append({"rule": rule, "line": line, "message": message})
 
+    def warn(self, rule, line, message):
+        self.warnings.append({"rule": rule, "line": line, "message": message})
+
     def label(self, text, line):
         text = text.strip()
         if not text:
             return
-        words, chars = measure(text)
-        over = (words > self.budgets["max_label_words"]
-                or chars > self.budgets["max_label_chars"])
-        self.labels.append({"text": text, "words": words, "chars": chars, "over": over})
-        if _HTML_TAG_RE.search(text):
+        lines = _BR_RE.split(text)
+        words, chars = measure(lines[0])
+        detail_words = detail_chars = None
+        if len(lines) > 1:
+            detail_words, detail_chars = measure(lines[1])
+        b = self.budgets
+        name_over = words > b["max_label_words"] or chars > b["max_label_chars"]
+        detail_over = len(lines) > 1 and (detail_words > b["max_detail_words"]
+                                          or detail_chars > b["max_detail_chars"])
+        over = name_over or detail_over or len(lines) > 2
+        self.labels.append({"text": text, "words": words, "chars": chars,
+                            "detail_words": detail_words, "detail_chars": detail_chars,
+                            "over": over})
+        if _HTML_TAG_RE.search(_BR_RE.sub(" ", text)):
             self.issue("html-in-label", line,
-                       f"HTML tag in label {text!r}; use plain text")
-        if over:
+                       f"HTML tag in label {text!r}; use plain text (only <br> is allowed)")
+        if name_over:
             self.issue("label-too-long", line,
-                       f"label {text!r} has {words} words and {chars} CJK characters "
-                       f"(budget {self.budgets['max_label_words']} words, "
-                       f"{self.budgets['max_label_chars']} characters)")
+                       f"name line of {text!r} has {words} words and {chars} CJK "
+                       f"characters (limit {b['max_label_words']} words, "
+                       f"{b['max_label_chars']} characters)")
+        if detail_over:
+            self.issue("label-too-long", line,
+                       f"detail line of {text!r} has {detail_words} words and "
+                       f"{detail_chars} CJK characters (limit {b['max_detail_words']} "
+                       f"words, {b['max_detail_chars']} characters)")
+        if len(lines) > 2:
+            self.issue("label-too-long", line,
+                       f"label {text!r} has {len(lines)} lines; use a name line and "
+                       "at most one detail line")
 
 
 class Blocks:
@@ -457,6 +502,10 @@ def check_state(items, report):
         if stripped == "}":
             braces.pop(line)
             continue
+        if stripped.split(None, 1)[0] in ("class", "direction", "accTitle", "accDescr"):
+            continue
+        # "A:::done" marks a state with a class; it is not a description.
+        stripped = _CLASS_ANY_RE.sub("", stripped).strip()
         m = _STATE_TRANSITION_RE.match(stripped)
         if m:
             transitions += 1
@@ -531,31 +580,32 @@ def analyze(text, budgets):
                 body = [(items[idx][0], rest)] + body
             counts = check_flowchart(body, report)
             if counts["nodes"] > budgets["max_nodes"]:
-                report.issue("too-many-nodes", items[idx][0],
-                             f"{counts['nodes']} nodes (budget {budgets['max_nodes']}); "
-                             "split the diagram")
+                report.warn("too-many-nodes", items[idx][0],
+                            f"{counts['nodes']} nodes (soft limit {budgets['max_nodes']}); "
+                            f"{_SPLIT_HINT}")
         elif kind == "sequenceDiagram":
             counts = check_sequence(body, report)
             if counts["participants"] > budgets["max_participants"]:
-                report.issue("too-many-participants", items[idx][0],
-                             f"{counts['participants']} participants "
-                             f"(budget {budgets['max_participants']}); split the diagram")
+                report.warn("too-many-participants", items[idx][0],
+                            f"{counts['participants']} participants "
+                            f"(soft limit {budgets['max_participants']}); {_SPLIT_HINT}")
             if counts["messages"] > budgets["max_messages"]:
-                report.issue("too-many-messages", items[idx][0],
-                             f"{counts['messages']} messages "
-                             f"(budget {budgets['max_messages']}); split the diagram")
+                report.warn("too-many-messages", items[idx][0],
+                            f"{counts['messages']} messages "
+                            f"(soft limit {budgets['max_messages']}); {_SPLIT_HINT}")
         else:
             counts = check_state(body, report)
             if counts["states"] > budgets["max_nodes"]:
-                report.issue("too-many-nodes", items[idx][0],
-                             f"{counts['states']} states (budget {budgets['max_nodes']}); "
-                             "split the diagram")
+                report.warn("too-many-nodes", items[idx][0],
+                            f"{counts['states']} states (soft limit {budgets['max_nodes']}); "
+                            f"{_SPLIT_HINT}")
     return {
         "type": type_name,
         "counts": counts,
         "budgets": dict(budgets),
         "labels": report.labels,
         "issues": sorted(report.issues, key=lambda i: i["line"]),
+        "warnings": report.warnings,
         "pass": not report.issues,
     }
 
@@ -584,7 +634,7 @@ def _non_negative(value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Check Mermaid source (budgets, labels, fragile syntax) and print JSON.")
+        description="Check Mermaid source (size, labels, fragile syntax) and print JSON.")
     parser.add_argument("file", nargs="?", default=None,
                         help="Mermaid file, or - for stdin (default: stdin)")
     for key, default in DEFAULT_BUDGETS.items():

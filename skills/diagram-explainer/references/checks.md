@@ -9,16 +9,19 @@ Standard library only. Run it with `python` (`python3` if `python` is missing). 
 ```
 python <skill folder>/scripts/diagram_check.py [FILE|-] [--max-nodes N] [--max-participants N]
     [--max-messages N] [--max-label-words N] [--max-label-chars N]
+    [--max-detail-words N] [--max-detail-chars N]
 ```
 
 - Input: FILE, or stdin when FILE is `-` or missing. UTF-8, a BOM is fine.
-- Budgets (defaults): `--max-nodes 12`, `--max-participants 6`, `--max-messages 12`, `--max-label-words 5`, `--max-label-chars 10`. A value equal to the budget passes. Change a budget only when the user asks.
+- Soft size limits (defaults): `--max-nodes 20`, `--max-participants 8`, `--max-messages 20`. Above a limit, the checker adds a warning. A warning does not fail the check.
+- Label limits (defaults): name line `--max-label-words 5` and `--max-label-chars 10`; detail line (after `<br>`) `--max-detail-words 8` and `--max-detail-chars 16`. A label over a limit fails the check. A value equal to the limit passes.
+- Change a limit only when the user asks.
 
 Exit codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Pass: no issues |
+| 0 | Pass: no issues (there can be warnings) |
 | 1 | Check failed: fix every entry in `issues` |
 | 2 | Usage or input error (bad flag, file not readable) |
 
@@ -28,12 +31,13 @@ JSON fields:
 | --- | --- |
 | `type` | `flowchart` (also for `graph`), `sequenceDiagram`, `stateDiagram-v2` (also for `stateDiagram`), the first word of an unsupported type, or `null` when there is no diagram |
 | `counts` | Flowchart: `nodes`, `edges`, `subgraphs`. Sequence: `participants`, `messages`. State: `states` (without `[*]`), `transitions`. Empty for unsupported types |
-| `budgets` | The budgets in use: `max_nodes`, `max_participants`, `max_messages`, `max_label_words`, `max_label_chars` |
-| `labels` | One entry per label: `text`, `words` (Latin words), `chars` (CJK characters), `over` (true when over a budget) |
+| `budgets` | The limits in use: `max_nodes`, `max_participants`, `max_messages` (soft), `max_label_words`, `max_label_chars` (name line), `max_detail_words`, `max_detail_chars` (detail line) |
+| `labels` | One entry per label: `text` (with `<br>`), `words` and `chars` (Latin words and CJK characters of the name line), `detail_words` and `detail_chars` (of the detail line, `null` without one), `over` (true when a line is over its limit or the label has more than two lines) |
 | `issues` | One entry per problem: `rule`, `line`, `message`. The rules are listed in `mermaid-syntax.md` |
+| `warnings` | One entry per soft limit passed: `rule` (`too-many-nodes`, `too-many-participants`, `too-many-messages`), `line`, `message`. Warnings do not change `pass` |
 | `pass` | true when `issues` is empty |
 
-The checker is line based and approximate, not a Mermaid parser. It reads one statement per line, skips full-line `%%` comments and front matter, and counts `A & B --> C` as two edges. HTML tags are ignored when it measures a label.
+The checker is line based and approximate, not a Mermaid parser. It reads one statement per line, skips full-line `%%` comments and front matter (a `title` is fine), and counts `A & B --> C` as two edges. It accepts `classDef`, `class`, `style`, `linkStyle` and `:::name` suffixes, and does not count them as nodes. Invisible links (`~~~`) count as edges. HTML tags are ignored when it measures a label.
 
 ## render_diagram.py
 
