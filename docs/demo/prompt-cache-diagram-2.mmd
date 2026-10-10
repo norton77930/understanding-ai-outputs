@@ -1,0 +1,31 @@
+---
+title: Two ideas built on cache and compaction
+---
+flowchart LR
+    subgraph handoff [Automatic handoff]
+        direction LR
+        A1["Reach threshold<br>a limit you choose"]:::check --> A2["Wait for break<br>a natural pause in work"]:::check
+        A2 --> A3["Write summary<br>verified, failed, one next step"]:::main
+        A3 --> A4["Clear conversation"]:::main
+        A4 --> A5["Continue fresh<br>you decide what survives"]:::ok
+    end
+
+    subgraph warm [Keep the cache warm]
+        direction LR
+        W1["User steps away"]:::check --> W2["Send tiny request<br>shortly before cache expires"]:::main
+        W2 --> W3["Read conversation from cache<br>timer resets, billed as read"]:::main
+        W3 -->|"repeat while away"| W2
+        W3 --> W4["User returns<br>next turn is a cache read"]:::ok
+    end
+
+    subgraph legend [Legend]
+        direction LR
+        k1["Trigger or wait"]:::check
+        k2["Action"]:::main
+        k3["Result"]:::ok
+        k1 ~~~ k2 ~~~ k3
+    end
+
+    classDef ok fill:#d4edda,stroke:#2e7d32,color:#1b3d1f
+    classDef check fill:#fff3cd,stroke:#b8860b,color:#4a3800
+    classDef main fill:#e3f2fd,stroke:#1565c0,color:#0d2a4a

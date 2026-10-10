@@ -1,7 +1,38 @@
 # understanding-ai-outputs
 
-Agent skills that turn LLM output into formats a human can understand faster, following Andrej Karpathy's X post
-([our summary](reference/karpathy-x-post.md)).
+**Ask your agent for a diagram, a web page or a narrated video instead of another wall of text.** Four Claude Code
+skills that follow the format ladder from Andrej Karpathy's X post ([our summary](reference/karpathy-x-post.md)).
+
+<p align="center">
+  <a href="docs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
+    alt="Clips from the demo video: cached blocks turn green while the input price drops, a five-minute cache countdown, and keep-warm pings resetting the timer"></a>
+  <br><sub>Made by <code>video-explainer</code> from one answer, no edits. <a href="docs/demo/prompt-cache.mp4">Watch the 92-second video</a> (sound on).</sub>
+</p>
+
+## One answer, four formats
+
+We gave the same answer to each skill: *why long Claude Code sessions get slow and expensive, and how an automatic
+handoff and keeping the cache warm help* ([the answer, the four requests and the costs](docs/demo/README.md)).
+
+| You ask | You get |
+| --- | --- |
+| **"Rewrite this answer in STE."**<br>`ste-writing` | Before: *"Because the model does not remember anything between requests, Claude Code re-sends the entire context on every turn, including the system prompt, your project context and every prior message and tool result, and it relies on prompt caching so that …"* (one 86-word sentence)<br>After: *"The model does not remember anything between requests. Thus, Claude Code sends the full context again on every turn."* ([full text](docs/demo/prompt-cache-ste.md)) |
+| **"Draw a diagram of this answer."**<br>`diagram-explainer` | <img src="docs/demo/prompt-cache-diagram-2.png" width="520" alt="Two flows: keep the cache warm (step away, tiny request before expiry, timer resets) and automatic handoff (threshold, break, structured summary, clear, continue)"><br>Mermaid source included ([second diagram](docs/demo/prompt-cache-diagram-1.png)) |
+| **"Make an interactive HTML page that explains this answer."**<br>`html-explainer` | <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/"><img src="docs/demo/prompt-cache-page-slider.png" width="520" alt="Section 2 of the page: a slider for the conversation size, and bars comparing the input cost of a warm and a cold cache"></a><br>Six sections with sliders, a guess-first question and step-through animations. **[Try it live](https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/)** |
+| **"Make a short explainer video of this answer."**<br>`video-explainer` | 92 seconds, 6 scenes, English narration (Kokoro, offline), captions as `.srt`. **[Watch it](docs/demo/prompt-cache.mp4)** |
+
+## Quick start (Claude Code)
+
+```bash
+claude plugin marketplace add norton77930/understanding-ai-outputs
+claude plugin install understanding-ai-outputs@norton77930
+```
+
+Then ask in any session: "explain this in STE", "draw a diagram of this", "make an interactive page of this" or
+"make an explainer video of this". Each skill starts only when you ask for its format. Codex, Cursor and other agents:
+see [Installation](#installation).
+
+## The format ladder
 
 As agents do more of the work, we spend more time reading and checking what they produce. The post suggests a
 **format ladder**. Each step costs more to produce and is faster to understand:
@@ -15,12 +46,12 @@ Each step is its own skill. Install only the ones you need.
 
 ## Skills
 
-| Skill | What it does | Status |
+| Skill | What it does | Needs |
 | --- | --- | --- |
-| `ste-writing` | Writes or rewrites text in a relaxed Simplified Technical English style | Available in the next release |
-| `diagram-explainer` | Turns a topic or an answer into one to three small Mermaid diagrams (flowchart, sequence, state) with a caption | Available in the next release |
-| `html-explainer` | Turns a topic or an answer into one self-contained interactive web page | Available in the next release |
-| `video-explainer` | Turns a topic or an answer into a narrated video (MP4, captions, script), from a one-minute summary to a 5 to 10 minute deep dive | Available in the next release |
+| `ste-writing` | Writes or rewrites text in a relaxed Simplified Technical English style | Nothing extra |
+| `diagram-explainer` | Turns a topic or an answer into one to three small Mermaid diagrams (flowchart, sequence, state) with a caption | Nothing extra; a Chromium browser and uv for PNG |
+| `html-explainer` | Turns a topic or an answer into one self-contained interactive web page | Nothing extra; a Chromium browser and uv for the render check |
+| `video-explainer` | Turns a topic or an answer into a narrated video (MP4, captions, script), from a one-minute summary to a 5 to 10 minute deep dive | uv and ffmpeg |
 
 `ste-writing` is inspired by ASD-STE100. It is not official and is not endorsed by ASD. The skill uses its own
 rules and its own replacement list, not the ASD-STE100 dictionary ([ADR 0001](docs/adr/0001-third-party-reference-material-stays-local.md)).

@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - GitHub Actions workflow that runs strict plugin validation and the unit tests on pull requests and on pushes to `main`.
 - README with both install routes, the skill list and the format ladder, and a "How this project works" section
   (one format per skill, checker scripts as a floor, the latest blind rating per skill, related projects).
+- `docs/demo/`: one answer (prompt caching and long Claude Code sessions) in all four formats, made by the skills,
+  with the request, time and cost of each and the one sentence changed by hand. The README opens with it.
 - CONTRIBUTING guide, issue forms (observed failure, idea) and this changelog.
 - MIT license.
 - `diagram-explainer` skill: explains a topic or AI output as one to three Mermaid diagrams (flowchart,

@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why Claude Code re-sends everything, and how the cache keeps it cheap</title>
+<style>
+  :root {
+    --bg: #f7f5f0; --fg: #1d1b18; --muted: #5d5850; --panel: #ffffff; --panel2: #efebe3;
+    --border: #d6cfc2; --accent: #6b3fd4;
+    --cached: #2f6fb3; --cached-bg: #dbe8f6;
+    --new: #c4570c; --new-bg: #fbe3d0;
+    --cold: #b3261e; --cold-bg: #f8dcd9;
+    --warm: #1d7a46; --warm-bg: #d7efe0;
+    --summary: #7a5b00; --summary-bg: #f6ebc4;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14131a; --fg: #ece9f2; --muted: #aaa5b5; --panel: #1e1c26; --panel2: #282533;
+      --border: #3c3848; --accent: #b39bff;
+      --cached: #7fb5f0; --cached-bg: #1d3350;
+      --new: #ffad70; --new-bg: #4a2b14;
+      --cold: #ff8f86; --cold-bg: #4d1f1c;
+      --warm: #72d79c; --warm-bg: #173a27;
+      --summary: #f0cf6b; --summary-bg: #40361a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 1.02rem/1.6 ui-sans-serif, system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 60rem; margin: 0 auto; padding: 1.2rem 1rem 4rem; }
+  header { padding: 2.5rem 0 1.5rem; border-bottom: 2px solid var(--border); }
+  .kicker { font: 600 0.8rem/1 ui-monospace, Consolas, monospace; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.15; margin: 0.5rem 0 1rem; letter-spacing: -0.02em; }
+  .lead { font-size: 1.15rem; max-width: 46rem; margin: 0; }
+  section { padding: 2.5rem 0 1rem; border-bottom: 1px solid var(--border); }
+  h2 { display: flex; gap: 0.8rem; align-items: baseline; font-size: 1.45rem; line-height: 1.3; margin: 0 0 0.6rem; }
+  h2 .num { flex: none; font: 700 0.95rem/1 ui-monospace, Consolas, monospace; color: var(--bg); background: var(--accent);
+            border-radius: 0.3rem; padding: 0.35rem 0.5rem; }
+  h3 { font-size: 1.05rem; margin: 1.2rem 0 0.4rem; }
+  p { max-width: 46rem; }
+  code { font-family: ui-monospace, Consolas, monospace; background: var(--panel2); padding: 0.05rem 0.35rem; border-radius: 0.25rem; }
+  .muted { color: var(--muted); font-size: 0.92rem; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 0.8rem; padding: 1rem; margin: 1rem 0; }
+  .two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+  @media (max-width: 720px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+  button { font: inherit; font-weight: 600; padding: 0.45rem 1rem; background: var(--panel2); color: var(--fg);
+           border: 2px solid var(--border); border-radius: 0.5rem; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel); box-shadow: inset 0 -3px 0 var(--accent); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.6rem 0; }
+  .status { font: 600 0.85rem/1.2 ui-monospace, Consolas, monospace; color: var(--muted); }
+
+  /* Request stack */
+  .stack { display: flex; flex-direction: column; gap: 0.3rem; min-height: 16rem; }
+  .blk { display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.4rem 0.7rem; border-radius: 0.4rem;
+         border: 2px solid var(--cached); background: var(--cached-bg); font-size: 0.9rem;
+         transition: background 0.4s, border-color 0.4s, transform 0.4s, opacity 0.4s; }
+  .blk .tag { font: 600 0.72rem/1.6 ui-monospace, Consolas, monospace; text-transform: uppercase; white-space: nowrap; }
+  .blk.new { border-color: var(--new); background: var(--new-bg); border-style: dashed; animation: drop 0.45s ease-out; }
+  .blk.cold { border-color: var(--cold); background: var(--cold-bg); }
+  @keyframes drop { from { opacity: 0; transform: translateY(-0.6rem); } to { opacity: 1; transform: none; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.85rem; margin-top: 0.6rem; }
+  .sw { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 0.2rem; vertical-align: -0.12rem; margin-right: 0.3rem; border: 2px solid; }
+  .sw.c { background: var(--cached-bg); border-color: var(--cached); }
+  .sw.n { background: var(--new-bg); border-color: var(--new); border-style: dashed; }
+  .sw.x { background: var(--cold-bg); border-color: var(--cold); }
+  .sw.s { background: var(--summary-bg); border-color: var(--summary); }
+  .ledger { font: 0.9rem/1.5 ui-monospace, Consolas, monospace; }
+  .ledger div { display: flex; justify-content: space-between; gap: 0.5rem; border-bottom: 1px dashed var(--border); padding: 0.2rem 0; }
+  .ledger .total { font-weight: 700; border-bottom: none; }
+
+  /* Cost bars */
+  .bars { display: grid; gap: 0.5rem; }
+  .barlab { display: flex; justify-content: space-between; font-size: 0.88rem; gap: 0.5rem; }
+  .track { background: var(--panel2); border-radius: 0.3rem; height: 1.3rem; overflow: hidden; }
+  .fill { height: 100%; border-radius: 0.3rem; transition: width 0.5s ease; }
+  .fill.cached { background: var(--cached); }
+  .fill.cold { background: repeating-linear-gradient(45deg, var(--cold) 0 8px, color-mix(in srgb, var(--cold) 75%, var(--bg)) 8px 16px); }
+  .fill.warm { background: var(--warm); }
+
+  label { font-weight: 600; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
+  fieldset { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 0.8rem; margin: 0.6rem 0; min-width: 0; }
+  legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.3rem; }
+  fieldset label { font-weight: 400; margin-right: 1rem; display: inline-flex; gap: 0.35rem; align-items: center; }
+  output { font-weight: 700; }
+
+  /* Timeline */
+  .timeline { position: relative; height: 3.6rem; margin: 1.6rem 0 0.4rem; }
+  .tl-base { position: absolute; left: 0; right: 0; top: 1.2rem; height: 1.2rem; background: var(--panel2); border-radius: 0.3rem; }
+  .tl-break { position: absolute; left: 0; top: 1.2rem; height: 1.2rem; border-radius: 0.3rem; transition: width 0.4s, background 0.4s; }
+  .tl-break.ok { background: var(--warm); }
+  .tl-break.bad { background: repeating-linear-gradient(45deg, var(--cold) 0 8px, color-mix(in srgb, var(--cold) 75%, var(--bg)) 8px 16px); }
+  .tl-mark { position: absolute; top: 0.6rem; width: 0; height: 2.4rem; border-left: 3px solid var(--fg); transition: left 0.4s; }
+  .tl-mark span { position: absolute; top: -1.4rem; left: -0.2rem; white-space: nowrap; font: 600 0.75rem/1 ui-monospace, Consolas, monospace; }
+  .tl-mark.right span { left: auto; right: 0.1rem; }
+  .tick { position: absolute; top: 1rem; width: 0.7rem; height: 1.6rem; margin-left: -0.35rem; border-radius: 0.2rem;
+          background: var(--accent); border: 2px solid var(--bg); transition: left 0.4s; }
+  .tl-axis { display: flex; justify-content: space-between; font: 0.75rem/1 ui-monospace, Consolas, monospace; color: var(--muted); }
+  .verdict { border-left: 5px solid var(--border); padding: 0.6rem 0.9rem; background: var(--panel2); border-radius: 0 0.4rem 0.4rem 0; margin: 0.8rem 0; }
+  .verdict.ok { border-color: var(--warm); }
+  .verdict.bad { border-color: var(--cold); }
+
+  /* Context window */
+  .window { display: flex; height: 3rem; border: 2px solid var(--fg); border-radius: 0.4rem; overflow: hidden; background: var(--panel2); position: relative; }
+  .window .seg { height: 100%; border-right: 1px solid var(--bg); transition: width 0.5s ease, background 0.4s; }
+  .seg.fixed { background: var(--muted); }
+  .seg.hist { background: var(--cached); }
+  .seg.sum { background: var(--summary); }
+  .limit { position: absolute; top: 0; bottom: 0; border-left: 3px dashed var(--cold); }
+  .wlabels { display: flex; justify-content: space-between; font: 0.78rem/1.4 ui-monospace, Consolas, monospace; color: var(--muted); margin-top: 0.2rem; }
+
+  /* Flow */
+  .flow { list-style: none; padding: 0; margin: 0.8rem 0; display: grid; gap: 0.4rem; counter-reset: f; }
+  .flow li { counter-increment: f; padding: 0.55rem 0.8rem 0.55rem 2.8rem; border: 2px solid var(--border); border-radius: 0.5rem; position: relative;
+             background: var(--panel); transition: border-color 0.3s, transform 0.3s, opacity 0.3s; opacity: 0.55; }
+  .flow li::before { content: counter(f); position: absolute; left: 0.7rem; top: 0.5rem; width: 1.5rem; height: 1.5rem; border-radius: 50%;
+                     background: var(--panel2); text-align: center; font: 700 0.85rem/1.5rem ui-monospace, Consolas, monospace; }
+  .flow li.done { opacity: 1; }
+  .flow li.cur { opacity: 1; border-color: var(--accent); transform: translateX(0.4rem); font-weight: 600; }
+  .flow li.cur::before { background: var(--accent); color: var(--bg); }
+  .note { font: 0.88rem/1.5 ui-monospace, Consolas, monospace; background: var(--summary-bg); border: 2px solid var(--summary); border-radius: 0.5rem; padding: 0.7rem 0.9rem; white-space: pre-wrap; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+  .tablewrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 0.85rem; color: var(--muted); }
+  details { background: var(--panel); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.9rem; margin: 0.6rem 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .summary-list li { margin: 0.4rem 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">Claude Code · prompt caching · compaction</div>
+    <h1>Every turn re-sends the whole conversation. The cache makes that cheap, until it expires.</h1>
+    <p class="lead">The model remembers nothing between requests. So Claude Code sends the full context on every turn. Prompt caching reads the unchanged beginning from a cache at a fraction of the price. After a break longer than the cache lifetime, the whole history is processed again at full price.</p>
+  </header>
+
+  <!-- 1 -->
+  <section aria-labelledby="s1">
+    <h2 id="s1"><span class="num">01</span>Each request contains everything, but only the newest part is fully processed</h2>
+    <p>Each request has the system prompt, your project context, and every prior message and tool result. The unchanged beginning is the <strong>prefix</strong>. The cache supplies the prefix. Only the newest exchange is new input.</p>
+    <div class="two">
+      <div class="card">
+        <div class="row">
+          <button type="button" id="req-next" class="primary">Next turn</button>
+          <button type="button" id="req-back">Back</button>
+          <button type="button" id="req-reset">Start again</button>
+          <span class="status" id="req-count"></span>
+        </div>
+        <div class="stack" id="req-stack" aria-label="Contents of the request"></div>
+        <div class="legend">
+          <span><span class="sw c"></span>Prefix, read from cache</span>
+          <span><span class="sw n"></span>Newest exchange, full price</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">This request</h3>
+        <p id="req-note" aria-live="polite" class="muted"></p>
+        <div class="ledger" id="req-ledger"></div>
+        <p class="muted">Units: 1 unit = 1 thousand tokens at the normal input price. Cache read = 0.1× here. Example token counts.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section aria-labelledby="s2">
+    <h2 id="s2"><span class="num">02</span>A cache read costs 0.1× on most models and 0.05× on Opus 5.5 and Sonnet 5.5</h2>
+    <p>Move the slider to change the size of the conversation. Compare the input cost of one turn with a warm cache and with a cold cache.</p>
+    <div class="card">
+      <label for="cost-size">Conversation size: <output id="cost-size-out" for="cost-size"></output></label>
+      <input type="range" id="cost-size" min="20" max="900" step="10" value="300">
+      <fieldset>
+        <legend>Model</legend>
+        <label><input type="radio" name="cost-model" value="0.1" checked> Most models (0.1×)</label>
+        <label><input type="radio" name="cost-model" value="0.05"> Opus 5.5 or Sonnet 5.5 (0.05×)</label>
+      </fieldset>
+      <div class="bars">
+        <div>
+          <div class="barlab"><span>Warm cache: prefix read from cache</span><output id="cost-warm"></output></div>
+          <div class="track"><div class="fill cached" id="cost-warm-bar"></div></div>
+        </div>
+        <div>
+          <div class="barlab"><span>Cold cache: whole history as uncached input</span><output id="cost-cold"></output></div>
+          <div class="track"><div class="fill cold" id="cost-cold-bar"></div></div>
+        </div>
+      </div>
+      <p id="cost-note" aria-live="polite"></p>
+      <p class="muted">The model assumes a newest exchange of 2 thousand tokens. It counts only the input prices from the explanation.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section aria-labelledby="s3">
+    <h2 id="s3"><span class="num">03</span>The cache expires after inactivity: one hour on a subscription, five minutes otherwise</h2>
+    <p>Every request that hits the cache resets the timer. A break longer than the lifetime lets the cache expire. Then the first request after the break reprocesses the whole history. That is slower and costs more.</p>
+    <div class="card">
+      <p><strong>Guess first.</strong> You use an API key. You step away for 20 minutes. Is your next turn a cache read?</p>
+      <div class="row">
+        <button type="button" data-guess="yes">Yes, a cache read</button>
+        <button type="button" data-guess="no">No, a full reprocess</button>
+      </div>
+      <p id="guess-out" class="verdict" aria-live="polite">Pick an answer.</p>
+    </div>
+    <div class="card">
+      <div class="row" role="group" aria-label="How you use Claude Code">
+        <button type="button" data-plan="60" aria-pressed="false">Claude subscription, within plan usage (1 hour)</button>
+        <button type="button" data-plan="5" aria-pressed="false">API key, cloud provider or usage credits (5 minutes)</button>
+      </div>
+      <label for="brk">Length of your break: <output id="brk-out" for="brk"></output></label>
+      <input type="range" id="brk" min="1" max="120" value="20">
+      <div class="timeline" aria-hidden="true">
+        <div class="tl-base"></div>
+        <div class="tl-break" id="tl-break"></div>
+        <div class="tl-mark" id="tl-mark"><span id="tl-mark-lab"></span></div>
+      </div>
+      <div class="tl-axis" aria-hidden="true"><span>Last request</span><span>120 min</span></div>
+      <p id="brk-verdict" class="verdict" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section aria-labelledby="s4">
+    <h2 id="s4"><span class="num">04</span>Near the context limit, Claude Code compacts the history into a summary</h2>
+    <p>The conversation grows until it approaches the limit of the context window. Then Claude Code compacts it automatically. The summary replaces the message history, the same as a manual <code>/compact</code>.</p>
+    <div class="card">
+      <div class="row">
+        <button type="button" id="cw-add" class="primary">Add turns</button>
+        <button type="button" id="cw-compact">Compact now</button>
+        <button type="button" id="cw-reset">Start again</button>
+      </div>
+      <fieldset>
+        <legend>Cache state when compaction runs</legend>
+        <label><input type="radio" name="cw-cache" value="warm" checked> Warm cache</label>
+        <label><input type="radio" name="cw-cache" value="cold"> Cold cache (after a long break)</label>
+      </fieldset>
+      <div class="window" id="cw-window" aria-label="Context window">
+        <div class="seg fixed" id="cw-fixed"></div>
+        <div class="seg hist" id="cw-hist"></div>
+        <div class="seg sum" id="cw-sum"></div>
+        <div class="limit" id="cw-limit"></div>
+      </div>
+      <div class="wlabels"><span>0</span><span>Auto-compact point</span></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--muted);border-color:var(--muted)"></span>System prompt and project context</span>
+        <span><span class="sw c"></span>Message history</span>
+        <span><span class="sw s"></span>Summary</span>
+      </div>
+      <p id="cw-note" class="verdict" aria-live="polite"></p>
+    </div>
+    <h3>Why compact by hand at a natural break</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Automatic compaction</th><th scope="col">Manual <code>/compact</code> at a natural break</th></tr></thead>
+        <tbody>
+          <tr><td>Can run in the middle of a task.</td><td>Runs when a step is finished.</td></tr>
+          <tr><td>Has to guess what is important.</td><td>You know what is important.</td></tr>
+          <tr><td>Can run after a break, with a cold cache. That is the most expensive case.</td><td>You run it while the cache is warm. The summary request reads the prefix from the cache.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Between unrelated tasks, run <code>/clear</code>. The new task then starts without the old history.</p>
+  </section>
+
+  <!-- 5 -->
+  <section aria-labelledby="s5">
+    <h2 id="s5"><span class="num">05</span>An automatic handoff lets you decide what survives</h2>
+    <p>The handoff replaces the automatic pass with a summary that you design. Step through it.</p>
+    <div class="two">
+      <div class="card">
+        <div class="row">
+          <button type="button" id="ho-next" class="primary">Next</button>
+          <button type="button" id="ho-back">Back</button>
+          <span class="status" id="ho-count"></span>
+        </div>
+        <ol class="flow" id="ho-flow">
+          <li>The conversation reaches a threshold that you choose.</li>
+          <li>The handoff waits for a natural break.</li>
+          <li>It writes a structured summary.</li>
+          <li>It clears the conversation.</li>
+          <li>It continues in a fresh conversation, from the summary.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">The structured summary</h3>
+        <div class="note" id="ho-note">Verified:  what works and was checked
+Failed:    what was tried and did not work
+Next step: the one next step</div>
+        <p class="muted" id="ho-text" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section aria-labelledby="s6">
+    <h2 id="s6"><span class="num">06</span>Keeping the cache warm pays off only for long sessions and short breaks</h2>
+    <p>While you are away, a tiny request goes out shortly before the cache expires. It reads the conversation from the cache and resets the timer. Each refresh is billed as a cache read of the whole conversation. So many refreshes can cost more than one full reprocess.</p>
+    <div class="card">
+      <div class="two">
+        <div>
+          <label for="kw-size">Conversation size: <output id="kw-size-out" for="kw-size"></output></label>
+          <input type="range" id="kw-size" min="20" max="900" step="10" value="400">
+          <label for="kw-brk">Length of your break: <output id="kw-brk-out" for="kw-brk"></output></label>
+          <input type="range" id="kw-brk" min="1" max="240" value="12">
+          <fieldset>
+            <legend>Cache lifetime</legend>
+            <label><input type="radio" name="kw-life" value="5" checked> 5 minutes</label>
+            <label><input type="radio" name="kw-life" value="60"> 1 hour</label>
+          </fieldset>
+          <fieldset>
+            <legend>Model</legend>
+            <label><input type="radio" name="kw-model" value="0.1" checked> Most models (0.1×)</label>
+            <label><input type="radio" name="kw-model" value="0.05"> Opus 5.5 or Sonnet 5.5 (0.05×)</label>
+          </fieldset>
+        </div>
+        <div>
+          <div class="bars">
+            <div>
+              <div class="barlab"><span>Do nothing</span><output id="kw-off"></output></div>
+              <div class="track"><div class="fill cold" id="kw-off-bar"></div></div>
+            </div>
+            <div>
+              <div class="barlab"><span>Keep the cache warm</span><output id="kw-on"></output></div>
+              <div class="track"><div class="fill warm" id="kw-on-bar"></div></div>
+            </div>
+          </div>
+          <p id="kw-detail" class="ledger"></p>
+        </div>
+      </div>
+      <div class="timeline" aria-hidden="true">
+        <div class="tl-base"></div>
+        <div class="tl-break ok" id="kw-tl" style="background:var(--panel2);outline:2px solid var(--border)"></div>
+        <div id="kw-ticks"></div>
+        <div class="tl-mark right" id="kw-end"><span>You return</span></div>
+      </div>
+      <div class="tl-axis" aria-hidden="true"><span>You leave</span><span>Blue marks = refresh requests</span></div>
+      <p id="kw-verdict" class="verdict" aria-live="polite"></p>
+      <p class="muted">The model sends each refresh at 90% of the lifetime. It counts the input cost of the first turn after the break plus all refreshes, and ignores the tiny new part of each refresh.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="s7">
+    <h2 id="s7"><span class="num">✓</span>Summary</h2>
+    <ul class="summary-list">
+      <li>Claude Code re-sends the full context on every turn, because the model remembers nothing.</li>
+      <li>The cached prefix costs 0.1× (0.05× on Opus 5.5 and Sonnet 5.5). Only the newest exchange costs full price.</li>
+      <li>The cache expires after 1 hour (subscription, within plan usage) or 5 minutes (API key, cloud provider, usage credits). Each cache hit resets the timer.</li>
+      <li>After the cache expires, the next turn reprocesses the whole history. It is slower and costs more.</li>
+      <li>Automatic compaction replaces the history with a summary. Compact at natural breaks while the cache is warm. Run <code>/clear</code> between unrelated tasks.</li>
+      <li>An automatic handoff writes your own summary (verified, failed, next step), clears and continues.</li>
+      <li>Keeping the cache warm pays off only for long sessions and breaks not much longer than the cache lifetime.</li>
+    </ul>
+  </section>
+</main>
+<script>
+  const lang = document.documentElement.lang;
+  const fmt = (x, d = 1) => x.toLocaleString(lang, { maximumFractionDigits: d, minimumFractionDigits: 0 });
+  const tok = (k) => k >= 1000 ? `${fmt(k / 1000, 2)}M tokens` : `${fmt(k, 0)}k tokens`;
+  const mins = (m) => m >= 60 ? `${fmt(m / 60, 2)} h (${m} min)` : `${m} min`;
+
+  /* 1: request stack */
+  (() => {
+    const parts = [
+      { name: "System prompt", k: 12 },
+      { name: "Project context", k: 8 },
+      { name: "Turn 1: your message", k: 1 },
+      { name: "Turn 1: reply and tool results", k: 6 },
+      { name: "Turn 2: your message", k: 1 },
+      { name: "Turn 2: reply and tool results", k: 9 },
+      { name: "Turn 3: your message", k: 1 },
+      { name: "Turn 3: reply and tool results", k: 7 }
+    ];
+    const steps = [
+      { n: 3, text: "Turn 1. Nothing is cached yet, so everything is new input." },
+      { n: 5, text: "Turn 2. Everything up to turn 1 is unchanged. It is the prefix, read from the cache." },
+      { n: 7, text: "Turn 3. The prefix is longer now. Only turn 3 is new input." },
+      { n: 8, text: "The reply arrives. Next turn, this whole stack is the prefix. The request keeps growing." }
+    ];
+    let i = 0;
+    const stack = document.getElementById("req-stack");
+    const next = document.getElementById("req-next");
+    const back = document.getElementById("req-back");
+    function show() {
+      const s = steps[i];
+      const cachedUpTo = i === 0 ? 0 : steps[i - 1].n;
+      stack.replaceChildren();
+      let cached = 0, fresh = 0;
+      parts.slice(0, s.n).forEach((p, k) => {
+        const isNew = k >= cachedUpTo;
+        const d = document.createElement("div");
+        d.className = "blk" + (isNew ? " new" : "");
+        d.innerHTML = `<span>${p.name}</span><span class="tag">${p.k}k · ${isNew ? "new" : "cached"}</span>`;
+        stack.append(d);
+        if (isNew) fresh += p.k; else cached += p.k;
+      });
+      document.getElementById("req-count").textContent = `Step ${i + 1} of ${steps.length}`;
+      document.getElementById("req-note").textContent = s.text;
+      const cost = cached * 0.1 + fresh;
+      document.getElementById("req-ledger").innerHTML =
+        `<div><span>Sent in total</span><span>${cached + fresh}k tokens</span></div>` +
+        `<div><span>Prefix from cache × 0.1</span><span>${fmt(cached * 0.1)} units</span></div>` +
+        `<div><span>New input × 1</span><span>${fmt(fresh)} units</span></div>` +
+        `<div class="total"><span>Input cost</span><span>${fmt(cost)} units</span></div>` +
+        `<div><span>Without a cache</span><span>${cached + fresh} units</span></div>`;
+      next.disabled = i === steps.length - 1;
+      back.disabled = i === 0;
+    }
+    next.addEventListener("click", () => { i += 1; show(); });
+    back.addEventListener("click", () => { i -= 1; show(); });
+    document.getElementById("req-reset").addEventListener("click", () => { i = 0; show(); });
+    show();
+  })();
+
+  /* 2: cost slider */
+  (() => {
+    const size = document.getElementById("cost-size");
+    const radios = document.querySelectorAll('input[name="cost-model"]');
+    function show() {
+      const k = Number(size.value);
+      const r = Number(document.querySelector('input[name="cost-model"]:checked').value);
+      const warm = (k - 2) * r + 2;
+      const cold = k;
+      document.getElementById("cost-size-out").textContent = tok(k);
+      document.getElementById("cost-warm").textContent = `${fmt(warm)} units`;
+      document.getElementById("cost-cold").textContent = `${fmt(cold)} units`;
+      document.getElementById("cost-warm-bar").style.width = `${(warm / 900) * 100}%`;
+      document.getElementById("cost-cold-bar").style.width = `${(cold / 900) * 100}%`;
+      document.getElementById("cost-note").textContent =
+        `A cold turn costs about ${fmt(cold / warm)} times as much as a warm turn. The gap grows with the size of the conversation.`;
+    }
+    size.addEventListener("input", show);
+    radios.forEach((r) => r.addEventListener("change", show));
+    show();
+  })();
+
+  /* 3: predict and timeline */
+  (() => {
+    const out = document.getElementById("guess-out");
+    document.querySelectorAll("[data-guess]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const right = b.dataset.guess === "no";
+        out.className = "verdict " + (right ? "ok" : "bad");
+        out.textContent = (right ? "Correct. " : "Not correct. ") +
+          "With an API key, the cache lifetime is 5 minutes. After 20 minutes it has expired, so the whole history is reprocessed.";
+      });
+    });
+    const planBtns = document.querySelectorAll("[data-plan]");
+    const brk = document.getElementById("brk");
+    let life = 5;
+    const max = 120;
+    function show() {
+      const b = Number(brk.value);
+      planBtns.forEach((p) => p.setAttribute("aria-pressed", String(Number(p.dataset.plan) === life)));
+      document.getElementById("brk-out").textContent = mins(b);
+      const bar = document.getElementById("tl-break");
+      bar.style.width = `${(b / max) * 100}%`;
+      const ok = b <= life;
+      bar.className = "tl-break " + (ok ? "ok" : "bad");
+      const mark = document.getElementById("tl-mark");
+      mark.style.left = `${(life / max) * 100}%`;
+      mark.classList.toggle("right", life > max / 2);
+      document.getElementById("tl-mark-lab").textContent = `Cache expires: ${life} min`;
+      const v = document.getElementById("brk-verdict");
+      v.className = "verdict " + (ok ? "ok" : "bad");
+      v.textContent = ok
+        ? `Cache still warm. The break (${b} min) is within the lifetime (${life} min). Your next turn reads the prefix from the cache.`
+        : `Cache expired. The break (${b} min) is longer than the lifetime (${life} min). Your next turn reprocesses the whole history as uncached input.`;
+    }
+    planBtns.forEach((p) => p.addEventListener("click", () => { life = Number(p.dataset.plan); show(); }));
+    brk.addEventListener("input", show);
+    show();
+  })();
+
+  /* 4: context window */
+  (() => {
+    const fixedPct = 10, limitPct = 85;
+    let hist = 15, compacted = false;
+    const add = document.getElementById("cw-add");
+    const compact = document.getElementById("cw-compact");
+    document.getElementById("cw-limit").style.left = `${limitPct}%`;
+    function show(msg) {
+      const warm = document.querySelector('input[name="cw-cache"]:checked').value === "warm";
+      document.getElementById("cw-fixed").style.width = `${fixedPct}%`;
+      document.getElementById("cw-hist").style.width = `${compacted ? 0 : hist}%`;
+      document.getElementById("cw-sum").style.width = `${compacted ? 5 : 0}%`;
+      const note = document.getElementById("cw-note");
+      if (msg) { note.className = "verdict " + (msg.ok ? "ok" : "bad"); note.textContent = msg.text; }
+      else {
+        note.className = "verdict";
+        note.textContent = compacted
+          ? "The history is now a short summary. Add turns to grow it again."
+          : `The context is ${fixedPct + hist}% full. In this example, automatic compaction runs at ${limitPct}%; the real point depends on the model and /autocompact. Cache: ${warm ? "warm" : "cold"}.`;
+      }
+      compact.disabled = compacted;
+    }
+    function runCompact(auto) {
+      const warm = document.querySelector('input[name="cw-cache"]:checked').value === "warm";
+      compacted = true;
+      const how = auto ? "Automatic compaction ran, possibly in the middle of a task, and guessed what is important. " : "You compacted at a natural break. ";
+      show({
+        ok: warm && !auto,
+        text: how + (warm
+          ? "The cache was warm, so the summary request read the prefix from the cache. That is cheap."
+          : "The cache was cold, so the summary request reprocessed the whole history. That is the most expensive case.")
+      });
+    }
+    add.addEventListener("click", () => {
+      if (compacted) { compacted = false; hist = 5; }
+      hist = Math.min(hist + 20, limitPct - fixedPct);
+      if (fixedPct + hist >= limitPct) { runCompact(true); return; }
+      show();
+    });
+    compact.addEventListener("click", () => runCompact(false));
+    document.getElementById("cw-reset").addEventListener("click", () => { hist = 15; compacted = false; show(); });
+    document.querySelectorAll('input[name="cw-cache"]').forEach((r) => r.addEventListener("change", () => show()));
+    show();
+  })();
+
+  /* 5: handoff */
+  (() => {
+    const items = document.querySelectorAll("#ho-flow li");
+    const texts = [
+      "You choose the threshold, so the handoff runs before the automatic pass.",
+      "It does not cut into a task. It waits until a step is finished.",
+      "You decide what survives: what was verified, what failed and the one next step.",
+      "The old message history is removed, as with /clear.",
+      "The fresh conversation starts small and continues from the next step."
+    ];
+    let i = 0;
+    const next = document.getElementById("ho-next");
+    const back = document.getElementById("ho-back");
+    function show() {
+      items.forEach((li, k) => { li.classList.toggle("cur", k === i); li.classList.toggle("done", k < i); });
+      document.getElementById("ho-count").textContent = `Step ${i + 1} of ${items.length}`;
+      document.getElementById("ho-text").textContent = texts[i];
+      document.getElementById("ho-note").style.borderStyle = i >= 2 ? "solid" : "dashed";
+      next.disabled = i === items.length - 1;
+      back.disabled = i === 0;
+    }
+    next.addEventListener("click", () => { i += 1; show(); });
+    back.addEventListener("click", () => { i -= 1; show(); });
+    show();
+  })();
+
+  /* 6: keep warm */
+  (() => {
+    const size = document.getElementById("kw-size");
+    const brk = document.getElementById("kw-brk");
+    const inputs = [size, brk, ...document.querySelectorAll('input[name="kw-life"], input[name="kw-model"]')];
+    function show() {
+      const k = Number(size.value);
+      const b = Number(brk.value);
+      const life = Number(document.querySelector('input[name="kw-life"]:checked').value);
+      const r = Number(document.querySelector('input[name="kw-model"]:checked').value);
+      const gap = life * 0.9;
+      const refreshes = b > life ? Math.floor(b / gap) : 0;
+      const off = b > life ? k : k * r;
+      const on = (refreshes + 1) * k * r;
+      const top = Math.max(off, on, 1);
+      document.getElementById("kw-size-out").textContent = tok(k);
+      document.getElementById("kw-brk-out").textContent = mins(b);
+      document.getElementById("kw-off").textContent = `${fmt(off)} units`;
+      document.getElementById("kw-on").textContent = `${fmt(on)} units`;
+      document.getElementById("kw-off-bar").style.width = `${(off / top) * 100}%`;
+      document.getElementById("kw-on-bar").style.width = `${(on / top) * 100}%`;
+      document.getElementById("kw-detail").innerHTML =
+        `<div><span>Refreshes</span><span>${refreshes} × ${fmt(k * r)} units</span></div>` +
+        `<div><span>First turn back, warm</span><span>${fmt(k * r)} units</span></div>` +
+        `<div><span>First turn back, cold</span><span>${fmt(k)} units</span></div>`;
+      document.getElementById("kw-tl").style.width = "100%";
+      const ticks = document.getElementById("kw-ticks");
+      ticks.replaceChildren();
+      const shown = Math.min(refreshes, 60);
+      for (let n = 1; n <= shown; n += 1) {
+        const t = document.createElement("div");
+        t.className = "tick";
+        t.style.left = `${((n * gap) / b) * 100}%`;
+        ticks.append(t);
+      }
+      document.getElementById("kw-end").style.left = "100%";
+      const v = document.getElementById("kw-verdict");
+      if (b <= life) {
+        v.className = "verdict ok";
+        v.textContent = "The break is within the cache lifetime. The cache stays warm without any refresh.";
+      } else if (on < off) {
+        v.className = "verdict ok";
+        v.textContent = `Keeping the cache warm pays off. ${refreshes} refreshes cost less than one full reprocess. You save ${fmt(off - on)} units.`;
+      } else {
+        v.className = "verdict bad";
+        v.textContent = `Keeping the cache warm does not pay off. ${refreshes} refreshes cost more than one full reprocess, by ${fmt(on - off)} units.`;
+      }
+    }
+    inputs.forEach((el) => el.addEventListener("input", show));
+    inputs.forEach((el) => el.addEventListener("change", show));
+    show();
+  })();
+</script>
+</body>
+</html>
