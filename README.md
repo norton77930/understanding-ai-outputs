@@ -41,11 +41,9 @@ Once installed, ask the way you always do, and name the format you want:
 
 Each format is its own skill, and each one starts only when you ask for it. Here is the video one at work:
 
-<p align="center">
-  <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
-    alt="Clips from the demo video: cached blocks turn green while the input price drops, a five-minute cache countdown, and keep-warm pings resetting the timer"></a>
-  <br><sub>Made by <code>video-explainer</code> from one answer, no edits. <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">Watch the 92-second video</a> (sound on).</sub>
-</p>
+https://github.com/user-attachments/assets/36cdba42-4a24-4bba-a807-0db2ac08b58c
+
+<p align="center"><sub>92 seconds, made by <code>video-explainer</code> from one answer, no edits. Turn the sound on. Can't play it here? <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">Open the video</a>.</sub></p>
 
 ## Why not just ask Claude?
 

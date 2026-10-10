@@ -41,11 +41,9 @@
 
 每種格式是一個獨立的 skill，只有你要求那種格式時才會啟動。下面是影片 skill 的實際產出：
 
-<p align="center">
-  <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
-    alt="示範影片片段：快取的方塊變綠、讀取價格往下跳，五分鐘的快取倒數，以及保溫請求讓計時重新開始"></a>
-  <br><sub>由 <code>video-explainer</code> 從一個回答直接做出來，沒有人工修改。<a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">觀看 92 秒完整影片</a>（請開聲音，旁白是英文）。</sub>
-</p>
+https://github.com/user-attachments/assets/36cdba42-4a24-4bba-a807-0db2ac08b58c
+
+<p align="center"><sub>92 秒，由 <code>video-explainer</code> 從一個回答直接做出來，沒有人工修改。請開聲音，旁白是英文。這裡無法播放的話，<a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">點這裡開啟影片</a>。</sub></p>
 
 ## 為什麼不直接問 Claude
 
