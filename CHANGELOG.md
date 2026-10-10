@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-10
+
+First public release: four skills (`ste-writing`, `diagram-explainer`, `html-explainer`, `video-explainer`), each with
+checker scripts, a 20-query trigger eval and a blind-rated eval.
+
 ### Added
 
 - Claude Code plugin manifest (`.claude-plugin/plugin.json`) and marketplace entry (`.claude-plugin/marketplace.json`).
@@ -65,3 +70,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   (the preset's `target_seconds` becomes `max_seconds`). The storyboard confirmation shows the mode. A 3b1b-like style
   in every mode: carried objects that `Transform` when the idea continues, one color per concept, and counting numbers
   with `Text` and an updater, with two new scene examples. The description no longer says "short".
+
+[Unreleased]: https://github.com/norton77930/understanding-ai-outputs/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/norton77930/understanding-ai-outputs/releases/tag/v1.0.0
