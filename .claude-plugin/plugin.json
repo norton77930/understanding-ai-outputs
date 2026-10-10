@@ -1,6 +1,6 @@
 {
   "name": "understanding-ai-outputs",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Agent skills that turn LLM output into formats a human can understand faster, following Andrej Karpathy's post. Skills: ste-writing (relaxed Simplified Technical English style), diagram-explainer (checked Mermaid diagrams with captions), html-explainer (self-contained interactive web pages) and video-explainer (narrated explainer videos).",
   "author": {
     "name": "Norton Deng",
