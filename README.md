@@ -42,9 +42,9 @@ Once installed, ask the way you always do, and name the format you want:
 Each format is its own skill, and each one starts only when you ask for it. Here is the video one at work:
 
 <p align="center">
-  <a href="docs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
+  <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
     alt="Clips from the demo video: cached blocks turn green while the input price drops, a five-minute cache countdown, and keep-warm pings resetting the timer"></a>
-  <br><sub>Made by <code>video-explainer</code> from one answer, no edits. <a href="docs/demo/prompt-cache.mp4">Watch the 92-second video</a> (sound on).</sub>
+  <br><sub>Made by <code>video-explainer</code> from one answer, no edits. <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">Watch the 92-second video</a> (sound on).</sub>
 </p>
 
 ## Why not just ask Claude?
@@ -104,7 +104,7 @@ handoff and keeping the cache warm help* ([the answer, the four requests and the
 | **"Rewrite this answer in STE."**<br>`ste-writing` | Before: *"Because the model does not remember anything between requests, Claude Code re-sends the entire context on every turn, including the system prompt, your project context and every prior message and tool result, and it relies on prompt caching so that …"* (one 86-word sentence)<br>After: *"The model does not remember anything between requests. Thus, Claude Code sends the full context again on every turn."* ([full text](docs/demo/prompt-cache-ste.md)) |
 | **"Draw a diagram of this answer."**<br>`diagram-explainer` | <img src="docs/demo/prompt-cache-diagram-2.png" width="520" alt="Two flows: keep the cache warm (step away, tiny request before expiry, timer resets) and automatic handoff (threshold, break, structured summary, clear, continue)"><br>Mermaid source included ([second diagram](docs/demo/prompt-cache-diagram-1.png)) |
 | **"Make an interactive HTML page that explains this answer."**<br>`html-explainer` | <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/"><img src="docs/demo/prompt-cache-page-slider.png" width="520" alt="Section 2 of the page: a slider for the conversation size, and bars comparing the input cost of a warm and a cold cache"></a><br>Six sections with sliders, a guess-first question and step-through animations. **[Try it live](https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/)** |
-| **"Make a short explainer video of this answer."**<br>`video-explainer` | 92 seconds, 6 scenes, English narration (Kokoro, offline), captions as `.srt`. **[Watch it](docs/demo/prompt-cache.mp4)** |
+| **"Make a short explainer video of this answer."**<br>`video-explainer` | 92 seconds, 6 scenes, English narration (Kokoro, offline), captions as `.srt`. **[Watch it](https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4)** |
 
 ## The four skills
 

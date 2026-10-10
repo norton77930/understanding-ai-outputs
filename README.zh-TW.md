@@ -42,9 +42,9 @@
 每種格式是一個獨立的 skill，只有你要求那種格式時才會啟動。下面是影片 skill 的實際產出：
 
 <p align="center">
-  <a href="docs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
+  <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4"><img src="docs/demo/prompt-cache.gif" width="720"
     alt="示範影片片段：快取的方塊變綠、讀取價格往下跳，五分鐘的快取倒數，以及保溫請求讓計時重新開始"></a>
-  <br><sub>由 <code>video-explainer</code> 從一個回答直接做出來，沒有人工修改。<a href="docs/demo/prompt-cache.mp4">觀看 92 秒完整影片</a>（請開聲音，旁白是英文）。</sub>
+  <br><sub>由 <code>video-explainer</code> 從一個回答直接做出來，沒有人工修改。<a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4">觀看 92 秒完整影片</a>（請開聲音，旁白是英文）。</sub>
 </p>
 
 ## 為什麼不直接問 Claude
@@ -99,7 +99,7 @@ npx skills@latest add norton77930/understanding-ai-outputs --skill=ste-writing  
 | **「Rewrite this answer in STE.」**<br>`ste-writing` | 改寫前：*"Because the model does not remember anything between requests, Claude Code re-sends the entire context on every turn, including the system prompt, your project context and every prior message and tool result, and it relies on prompt caching so that …"*（一句 86 個字）<br>改寫後：*"The model does not remember anything between requests. Thus, Claude Code sends the full context again on every turn."*（[全文](docs/demo/prompt-cache-ste.md)） |
 | **「Draw a diagram of this answer.」**<br>`diagram-explainer` | <img src="docs/demo/prompt-cache-diagram-2.png" width="520" alt="兩條流程：快取保溫（離開、到期前送小請求、計時重來）和自動交接（門檻、告一段落、有結構的摘要、清空、接著做）"><br>附 Mermaid 原始碼（[第二張圖](docs/demo/prompt-cache-diagram-1.png)） |
 | **「Make an interactive HTML page that explains this answer.」**<br>`html-explainer` | <a href="https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/"><img src="docs/demo/prompt-cache-page-slider.png" width="520" alt="網頁第 2 段：調整對話大小的滑桿，以及快取有效和過期時輸入成本的長條比較"></a><br>六個段落，有滑桿、先猜猜看的小問題和逐步播放的動畫。**[線上試玩](https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache/)** |
-| **「Make a short explainer video of this answer.」**<br>`video-explainer` | 92 秒、6 個場景，英文旁白（Kokoro，離線），字幕另存成 `.srt`。**[觀看影片](docs/demo/prompt-cache.mp4)** |
+| **「Make a short explainer video of this answer.」**<br>`video-explainer` | 92 秒、6 個場景，英文旁白（Kokoro，離線），字幕另存成 `.srt`。**[觀看影片](https://norton77930.github.io/understanding-ai-outputs/demo/prompt-cache.mp4)** |
 
 ## 四個 skill
 
