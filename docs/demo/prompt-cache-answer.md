@@ -1,0 +1,14 @@
+**Question:** Why do long Claude Code sessions get slow and expensive, and how do an automatic handoff and keeping the cache warm help?
+
+**Answer (as an assistant typically writes it):**
+
+Because the model does not remember anything between requests, Claude Code re-sends the entire context on every turn, including the system prompt, your project context and every prior message and tool result, and it relies on prompt caching so that the unchanged beginning of the request, called the prefix, is read from the cache and billed at a fraction of the normal input price (0.1 times on most models, and 0.05 times on Opus 5.5 and Sonnet 5.5), while only the newest exchange is fully processed. However, cached prefixes expire after a period of inactivity, and although every request that hits the cache resets the timer, the default lifetime is one hour for the main conversation on a Claude subscription within your plan's usage but only five minutes with an API key, a cloud provider or usage credits, which means that if you step away for longer than that, the first request after your break has to reprocess the whole history as uncached input, which is noticeably slower and considerably more expensive in a very long session.
+
+At the same time, the conversation keeps growing until it approaches the limit of the context window, at which point Claude Code compacts it automatically by replacing the message history with a summary, exactly as a manual `/compact` would. Compaction is cheap while the cache is warm, because the summary request reads the prefix from the cache, but it is most expensive after the cache has expired, and the automatic pass can also run in the middle of a task and has to guess what is important, which is why the documentation recommends compacting at natural breaks and running `/clear` between unrelated tasks.
+
+Two ideas build on these mechanics. An automatic handoff waits for a threshold you choose and for a natural break, writes a structured summary of what was verified, what failed and the one next step, clears the conversation and continues in a fresh one, so you decide what survives instead of the automatic pass. Keeping the cache warm means that while you are away, a tiny request is sent shortly before the cache would expire, which reads the conversation from the cache and resets the timer, so that when you come back your next turn is a cache read rather than a full reprocessing; since each refresh is itself billed as a cache read of the whole conversation, it pays off only for long sessions and breaks that are not much longer than the cache lifetime.
+
+**Sources (read 2026-10-10):**
+- https://code.claude.com/docs/en/prompt-caching
+- https://code.claude.com/docs/en/context-window
+- https://platform.claude.com/docs/en/build-with-claude/prompt-caching

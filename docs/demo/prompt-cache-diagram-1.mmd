@@ -1,0 +1,30 @@
+---
+title: What one Claude Code turn costs
+---
+flowchart TD
+    T([New turn]):::main --> R["Re-send full context<br>system prompt, project, all messages"]:::main
+    R --> C{Prefix still in cache?}:::check
+    C -->|yes| H["Read prefix from cache<br>billed at 0.1x or 0.05x"]:::ok
+    C -->|"no, cache expired"| M["Reprocess whole history<br>full price and slower"]:::bad
+    H --> X["Reset cache timer<br>1 h subscription, 5 min API"]:::ok
+    X --> L{Context near limit?}:::check
+    M --> L
+    L -->|no| N([Next turn]):::main
+    L -->|yes| P["Compact automatically<br>summary replaces message history"]:::check
+    P -->|"cache warm"| PC["Cheap compaction<br>summary reads prefix from cache"]:::ok
+    P -->|"cache expired"| PE["Expensive compaction<br>may run mid-task, guesses importance"]:::bad
+    linkStyle 2,4,9 stroke:#2e7d32,stroke-width:2px
+    linkStyle 3,10 stroke:#c62828,stroke-width:2px
+
+    subgraph legend [Legend]
+        direction LR
+        k1["Cache hit, cheap"]:::ok
+        k2["Cache miss, costly"]:::bad
+        k3["Check or decision"]:::check
+        k1 ~~~ k2 ~~~ k3
+    end
+
+    classDef ok fill:#d4edda,stroke:#2e7d32,color:#1b3d1f
+    classDef bad fill:#f8d7da,stroke:#c62828,color:#5a1414
+    classDef check fill:#fff3cd,stroke:#b8860b,color:#4a3800
+    classDef main fill:#e3f2fd,stroke:#1565c0,color:#0d2a4a
