@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>Rotated label</title>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <g transform="rotate(-90 40 100)">
+    <text x="40" y="100" font-size="16" fill="#1f2937" text-anchor="middle">Rotated axis label</text>
+  </g>
+  <text x="200" y="40" font-size="16" fill="#1f2937" transform="scale(2)">Scaled</text>
+</svg>

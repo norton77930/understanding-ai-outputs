@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>Text outside the canvas</title>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <text x="300" y="40" font-size="16" fill="#1f2937">A label that runs off the right edge</text>
+  <text x="10" y="80" font-size="16" fill="#1f2937" text-anchor="end">Starts left of zero</text>
+  <g transform="translate(0, 190)">
+    <text x="20" y="20" font-size="16" fill="#1f2937">Below the bottom</text>
+  </g>
+  <text x="200" y="140" font-size="16" fill="#1f2937" text-anchor="middle">中文標籤放在中間剛好</text>
+</svg>

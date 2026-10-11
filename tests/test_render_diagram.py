@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "skills" / "diagram-explainer" / "scripts" / "render_diagram.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "diagram"
+SVG_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "svg"
 
 E2E = os.environ.get("DIAGRAM_E2E") == "1"
 
@@ -113,6 +114,40 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIn("nope.mmd", data["error"])
 
 
+class SvgEnvironmentTests(unittest.TestCase):
+    """CI-safe: an .svg input follows the same environment rules."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.src = self.tmp / "d.svg"
+        shutil.copy(SVG_FIXTURES / "pass_cjk.svg", self.src)
+
+    def test_no_browser_exits_2_and_leaves_the_svg_alone(self):
+        before = self.src.read_bytes()
+        code, data, err = run_python(
+            self.src, env_extra={"DIAGRAM_RENDER_SIMULATE": "no-browser"})
+        self.assertEqual(code, 2, err)
+        self.assertEqual(set(data), KEYS | {"hint"})
+        self.assertIsNone(data["png"])
+        self.assertIsNone(data["mermaid_version"])
+        self.assertIn("playwright install chromium", data["hint"])
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["d.svg"])
+        self.assertEqual(self.src.read_bytes(), before)
+
+    def test_no_playwright_exits_2_with_uv_hint(self):
+        code, data, err = run_python(
+            self.src, env_extra={"DIAGRAM_RENDER_SIMULATE": "no-playwright"})
+        self.assertEqual(code, 2, err)
+        self.assertIn("uv run", data["hint"])
+
+    def test_missing_svg_exits_2(self):
+        code, data, err = run_python(self.tmp / "nope.svg")
+        self.assertEqual(code, 2, err)
+        self.assertIn("nope.svg", data["error"])
+        self.assertIsNone(data["mermaid_version"])
+
+
 @unittest.skipUnless(E2E, "set DIAGRAM_E2E=1 to render in a real browser")
 class RenderTests(unittest.TestCase):
     """Local only: render every fixture type in a real browser."""
@@ -171,6 +206,45 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(code, 1, (data, err))
         self.assertIn("render timed out", data["error"].lower())
         self.assertIsNone(data["svg"])
+        self.assertIsNone(data["png"])
+        self.assertFalse(out.exists() and any(out.iterdir()))
+
+
+@unittest.skipUnless(E2E, "set DIAGRAM_E2E=1 to render in a real browser")
+class SvgRenderTests(unittest.TestCase):
+    """Local only: render a hand-written SVG to PNG in a real browser."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_svg_renders_png_next_to_it_and_is_not_rewritten(self):
+        src = self.tmp / "diagram.svg"
+        shutil.copy(SVG_FIXTURES / "pass_cjk.svg", src)
+        before = src.read_bytes()
+        code, data, err = run_uv(src)
+        self.assertEqual(code, 0, (data, err))
+        self.assertEqual(set(data), KEYS)
+        self.assertIsNone(data["mermaid_version"])
+        self.assertEqual(Path(data["svg"]), src)
+        self.assertEqual(Path(data["png"]), self.tmp / "diagram.png")
+        self.assertEqual(src.read_bytes(), before)
+        png = Path(data["png"]).read_bytes()
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        # viewBox 800 x 340 at device scale 2.
+        self.assertEqual((data["width"], data["height"]), (1600, 680))
+
+    def test_out_folder_gets_only_the_png(self):
+        out = self.tmp / "out"
+        code, data, err = run_uv(SVG_FIXTURES / "pass_cjk.svg", "--out", out)
+        self.assertEqual(code, 0, (data, err))
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["pass_cjk.png"])
+
+    def test_broken_svg_exits_1_and_writes_nothing(self):
+        out = self.tmp / "broken"
+        code, data, err = run_uv(SVG_FIXTURES / "not_xml.svg", "--out", out)
+        self.assertEqual(code, 1, (data, err))
+        self.assertTrue(data["error"])
         self.assertIsNone(data["png"])
         self.assertFalse(out.exists() and any(out.iterdir()))
 

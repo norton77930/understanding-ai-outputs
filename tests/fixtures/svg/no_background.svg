@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>No background</title>
+  <rect x="20" y="20" width="360" height="160" rx="12" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="200" y="104" font-size="16" fill="#1f2937" text-anchor="middle">Corners show the host page</text>
+</svg>

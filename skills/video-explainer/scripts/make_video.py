@@ -97,6 +97,10 @@ PAD_SECONDS = 0.35
 # Speech rates measured in the prototype (natural explainer pace).
 EN_WORDS_PER_SECOND = 168 / 60
 ZH_HANZI_PER_SECOND = 3.05
+# Chinese rate per narration engine; an engine not listed speaks at
+# ZH_HANZI_PER_SECOND. edge-tts measured 2026-10-11 with zh-TW-HsiaoChenNeural,
+# run 20261011-090459, issue #53 (912 hanzi in 237.0 s).
+ZH_HANZI_PER_SECOND_BY_ENGINE = {"edge-tts": 3.85}
 
 # Output presets. Add a row to add a preset.
 #   max_seconds: length limit of the preset in every mode (None: the mode alone
@@ -129,13 +133,20 @@ PRESETS = {
 }
 DEFAULT_PRESET = "explainer"
 
-# Intent modes: the scene count range (outside it `plan` fails) and the target
-# length in seconds (outside it `plan` adds a notice). Add a row to add a mode.
+# Intent modes: the scene count range (outside it `plan` fails), the target
+# length in seconds (outside it `plan` adds a notice) and the characters per
+# Chinese scene (an average outside it makes `plan` add a notice). Add a row to
+# add a mode. The `short` preset uses the quick range of characters in every mode.
 MODES = {
-    "quick": {"scenes": [3, 6], "target_seconds": [30, 90]},
-    "standard": {"scenes": [6, 15], "target_seconds": [120, 240]},
-    "deep": {"scenes": [15, 30], "target_seconds": [300, 600]},
+    "quick": {"scenes": [3, 6], "target_seconds": [30, 90], "zh_scene_chars": [25, 35]},
+    "standard": {"scenes": [6, 15], "target_seconds": [120, 240], "zh_scene_chars": [45, 60]},
+    "deep": {"scenes": [15, 30], "target_seconds": [300, 600], "zh_scene_chars": [45, 60]},
 }
+SHORT_PRESET = "short"
+# `plan` adds a notice when the estimate is less than this fraction above the
+# mode's lower length bound: the measured speech can run a few percent shorter
+# than the estimate (run 20261011-103432: 305 s estimated, 298.6 s rendered).
+LOWER_BOUND_MARGIN = 0.05
 DEFAULT_MODE = "standard"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -176,9 +187,14 @@ def text_units(text):
     return {"hanzi": hanzi, "words": words}
 
 
-def estimate_speech_seconds(text):
+def zh_rate_for(engine_name):
+    """Hanzi per second the named engine speaks (see ZH_HANZI_PER_SECOND_BY_ENGINE)."""
+    return ZH_HANZI_PER_SECOND_BY_ENGINE.get(engine_name, ZH_HANZI_PER_SECOND)
+
+
+def estimate_speech_seconds(text, zh_rate=ZH_HANZI_PER_SECOND):
     units = text_units(text)
-    return units["hanzi"] / ZH_HANZI_PER_SECOND + units["words"] / EN_WORDS_PER_SECOND
+    return units["hanzi"] / zh_rate + units["words"] / EN_WORDS_PER_SECOND
 
 
 def estimate_render_seconds(total_seconds, preset):
@@ -596,6 +612,28 @@ def mode_info(name):
     return {"name": name, "scenes": m["scenes"], "target_seconds": m["target_seconds"]}
 
 
+def zh_scene_chars_info(board, scenes):
+    """Characters (hanzi plus Latin words) per Chinese scene against the range in
+    force: the quick range for the `short` preset, else the range of the mode.
+    Returns (info, notice); notice is None when the average is inside the range."""
+    if board["preset"] == SHORT_PRESET:
+        label, rng = "short preset", MODES["quick"]["zh_scene_chars"]
+    else:
+        label, rng = f"{board['mode']} mode", MODES[board["mode"]]["zh_scene_chars"]
+    counts = [s["units"]["hanzi"] + s["units"]["words"] for s in scenes]
+    average = round(sum(counts) / len(counts), 1)
+    info = {"range": list(rng), "average": average, "per_scene": counts}
+    low, high = rng
+    if low <= average <= high:
+        return info, None
+    if average < low:
+        side, fix = "below", "write fuller scenes, not more scenes"
+    else:
+        side, fix = "above", "write shorter scenes, not fewer scenes"
+    return info, (f"Chinese narration: average {average:g} characters per scene is {side} "
+                  f"the {label}'s {low}-{high}; {fix}.")
+
+
 def check_scene_count(board):
     """The scene count must fit the mode. Only `plan` checks it, so a storyboard
     that the user approved still previews and renders."""
@@ -635,9 +673,10 @@ def cmd_plan(args):
     if downloads:
         notices.append(download_notice(downloads))
     preset = PRESETS[board["preset"]]
+    zh_rate = zh_rate_for(selection["name"])
     scenes = []
     for s in board["scenes"]:
-        seconds = estimate_speech_seconds(s["narration"]) + PAD_SECONDS
+        seconds = estimate_speech_seconds(s["narration"], zh_rate) + PAD_SECONDS
         scenes.append({"id": s["id"], "narration": s["narration"],
                        "units": text_units(s["narration"]),
                        "estimated_seconds": round(seconds, 2),
@@ -646,26 +685,44 @@ def cmd_plan(args):
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
     mode = board["mode"]
     low, high = MODES[mode]["target_seconds"]
+    zh_chars, zh_notice = (zh_scene_chars_info(board, scenes) if is_zh(board["lang"])
+                           else (None, None))
+    # Chinese scenes below their character range: fuller scenes are the fix, so
+    # one notice carries the short length and "add scenes" is not advised.
+    zh_too_short = zh_chars is not None and zh_chars["average"] < zh_chars["range"][0]
     if total > high:
         notices.append(f"Estimated length {total} s is above the {mode} mode target of "
                        f"{low}-{high} s; shorten the scenes or switch to a deeper mode.")
     elif total < low:
-        notices.append(f"Estimated length {total} s is below the {mode} mode target of "
-                       f"{low}-{high} s; add scenes or switch to a quicker mode.")
+        if zh_too_short:
+            zh_notice += (f" Estimated length {total} s is below the {mode} mode target of "
+                          f"{low}-{high} s.")
+        else:
+            notices.append(f"Estimated length {total} s is below the {mode} mode target of "
+                           f"{low}-{high} s; add scenes or switch to a quicker mode.")
+    elif total < low * (1 + LOWER_BOUND_MARGIN):
+        notices.append(f"Estimated length {total} s is close to the lower end of the {mode} mode "
+                       f"target of {low}-{high} s; the real video can be a few percent shorter, "
+                       f"so add a little narration.")
     limit = preset["max_seconds"]
     if limit is not None and total > limit:
         notices.append(f"Estimated length {total} s exceeds the {limit} s limit for the "
                        f"{board['preset']} preset; shorten the storyboard.")
+    if zh_notice:
+        notices.append(zh_notice)
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
               "preset": preset_info(board["preset"]), "mode": mode_info(mode),
               "engine": engine_info(selection),
+              "speech_rate": {"zh_hanzi_per_second": zh_rate, "engine": selection["name"]},
               "network": "offline" if offline else "not checked",
               "notices": notices, "downloads": downloads,
               "cache_dir": str(doctor.cache_dir()), "scenes": scenes,
               "estimated_total_seconds": total,
               "estimated_render_seconds": estimate_render_seconds(total, preset),
               "out_dir": str(out)}
+    if zh_chars is not None:
+        result["zh_scene_chars"] = zh_chars
     write_json(out / "plan.json", result)
     return result
 

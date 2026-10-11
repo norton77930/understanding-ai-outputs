@@ -1,14 +1,20 @@
 # Diagram types
 
-Pick the type from the question the diagram answers, not from the topic. One topic can need two types: "How does OAuth work?" is a sequence (who sends what to whom), but "What states does a token go through?" is a state diagram.
+Pick the output and the type from the question the diagram answers, not from the topic. One topic can need two types: "How does OAuth work?" is a sequence (who sends what to whom), but "What states does a token go through?" is a state diagram, and "How full is the context window after ten turns?" is a proportion drawn in SVG.
 
-| The question is about | Type | Header |
+| The question is about | Output and type | Header or file |
 | --- | --- | --- |
-| Who talks to whom, in order over time ("What happens when ...?") | Sequence | `sequenceDiagram` |
-| The states of one thing and what moves it between them ("What states does ... go through?") | State | `stateDiagram-v2` |
-| A chain of stages, with or without pass/fail checks: a pipeline, data that moves through components ("What are the steps?", "Where does the data go?") | Flowchart, left to right | `flowchart LR` |
-| A process where the branching is the point ("How does ... decide?", "What happens if ...?") | Flowchart, top down | `flowchart TD` |
-| What contains what ("What runs where?", "What is inside ...?") | Flowchart with subgraphs | `flowchart LR` or `flowchart TD` plus `subgraph` |
+| Who talks to whom, in order over time ("What happens when ...?") | Mermaid sequence | `sequenceDiagram` |
+| The states of one thing and what moves it between them ("What states does ... go through?") | Mermaid state | `stateDiagram-v2` |
+| A chain of stages, with or without pass/fail checks: a pipeline, data that moves through components ("What are the steps?", "Where does the data go?") | Mermaid flowchart, left to right | `flowchart LR` |
+| A process where the branching is the point ("How does ... decide?", "What happens if ...?") | Mermaid flowchart, top down | `flowchart TD` |
+| What contains what, as boxes inside boxes ("What runs where?", "What is inside ...?") | Mermaid flowchart with subgraphs | `flowchart LR` or `flowchart TD` plus `subgraph` |
+| A concept whose layout carries meaning: layers, a stack, a ring, parts around a center ("What is ... made of?") | Hand-written SVG | `diagram.svg` |
+| A spatial relation: what sits where, near or far, on which side ("Where does ... sit?") | Hand-written SVG | `diagram.svg` |
+| A proportion: how full, how much of the whole, what is left ("How much of ... does ... use?") | Hand-written SVG | `diagram.svg` |
+| A timeline: events and spans on a time axis ("When does ... happen?", "How long does ... last?") | Hand-written SVG | `diagram.svg` |
+
+Mermaid draws boxes and arrows well; use it whenever the answer is steps and arrows. Draw SVG when the shape of the picture is the answer (a bar that fills, a position, a length of time). If the user names a tool, use that tool. The SVG structure, an example and the checker rules are in `svg-drawing.md`; the rest of this file is about the Mermaid types.
 
 A pipeline stays `flowchart LR` even when it has checks that can fail: the stages read as a line, and the failure exits go to the side. Use `flowchart TD` only when the decisions are what the reader must follow.
 

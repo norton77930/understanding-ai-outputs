@@ -25,7 +25,7 @@
 | `slug` | yes | Lower-case letters, digits and single hyphens. Names the output folder. |
 | `lang` | yes | Narration language tag: `en`, `zh-TW`, or another tag (best effort, see `narration-engines.md`). |
 | `preset` | no | `explainer` (default), `youtube` or `short`. See `output-presets.md`. |
-| `mode` | no | `quick` (3 to 6 scenes, about 1 minute), `standard` (default; 6 to 15 scenes, 2 to 4 minutes) or `deep` (15 to 30 scenes, 5 to 10 minutes). `plan` fails when the scene count is outside the mode's range, and adds a notice when the estimated length is outside the mode's length. `preview` and `final` do not check the scene count. |
+| `mode` | no | `quick` (3 to 6 scenes, about 1 minute), `standard` (default; 6 to 15 scenes, 2 to 4 minutes) or `deep` (15 to 30 scenes, 5 to 10 minutes). `plan` fails when the scene count is outside the mode's range, and adds a notice when the estimated length is outside the mode's length or less than 5% above its lower end. `preview` and `final` do not check the scene count. |
 | `engine` | no | `null` for automatic selection, an engine name (`"kokoro"`, `"edge-tts"`), or `{"name": "kokoro", "voice": "zf_001"}`. The object form needs `name`; a voice alone is an error. The `silent` engine is for tests only. |
 | `scenes` | yes | Non-empty list, in play order. |
 | `scenes[].id` | yes | Unique. Also the function name in the scenes module and the frame file name. Lower-case letters, digits and underscores, not starting with a digit (`s1`, `intro`). Not a Python keyword or a Windows device name (`con`, `nul`, `com1`). |
@@ -67,7 +67,9 @@ On exit 1 or 2, `errors` is a list of messages.
 
 - `preset`: `name`, `width`, `height`, `fps`, `resolution`, `aspect`, `max_seconds` (the preset's length limit in every mode: `60` for `short`, otherwise `null`), `burn_captions`.
 - `mode`: `name`, `scenes` (`[min, max]` scene count), `target_seconds` (`[min, max]` length). Show the mode with the length and render-time estimates.
+- `zh_scene_chars` (Chinese storyboards only, `lang` starting with `zh`): `range` (`[min, max]` characters per scene in force: the mode's, or the quick range for the `short` preset), `average`, `per_scene` (hanzi plus Latin words of each scene). `plan` adds one notice when `average` is outside `range`. It never fails on it.
 - `engine`: `name`, `voice`, `reason`, `fallback` (the offline engine for zh-TW, or `null`).
+- `speech_rate`: `zh_hanzi_per_second` and `engine`, the Chinese speech rate behind the estimates (3.85 for edge-tts, measured; 3.05 for every other engine). English is 2.8 words per second. The rate follows the engine in `engine`, so a zh-TW plan made offline (Kokoro) estimates longer than the same plan with edge-tts.
 - `network`: `"offline"` or `"not checked"`. `plan` never connects. Use `--offline` (or `VIDEO_EXPLAINER_OFFLINE=1`) when the doctor reported no network.
 - `notices`: messages for the user. Show every one.
 - `downloads`: missing model files, each `{"name", "url", "size_mb", "set", "fallback"}`. `fallback` is `true` for files that only the run-time fallback engine needs (Kokoro Chinese when edge-tts is unreachable for zh-TW).

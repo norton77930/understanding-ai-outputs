@@ -112,7 +112,7 @@ one skill. Install only the ones you need.
 | Skill | Ask for | You get | Needs |
 | :--- | :--- | :--- | :--- |
 | `ste-writing` | "explain in STE", "rewrite this in STE" | Text in a relaxed Simplified Technical English style | Nothing |
-| `diagram-explainer` | "draw a diagram of this" | One to three Mermaid diagrams (flowchart, sequence, state) with a legend and a caption | Nothing; uv and a Chromium browser for PNG |
+| `diagram-explainer` | "draw a diagram of this" | One to three diagrams with a legend and a caption: Mermaid for flows, sequences and states, hand-written SVG for concepts, proportions and timelines | Nothing; uv and a Chromium browser for PNG |
 | `html-explainer` | "make an interactive page of this" | One self-contained `index.html` with step-through, sliders, toggles or reveals | Nothing; uv and a Chromium browser for the render check |
 | `video-explainer` | "make an explainer video of this" | MP4, captions and script: quick (about 1 min), standard (2 to 4 min) or deep (5 to 10 min) | uv and ffmpeg |
 
@@ -144,14 +144,19 @@ estimated length and render time, and any model download with its size. It rende
 <summary><b>diagram-explainer details</b></summary>
 
 Ask for a diagram explicitly, for example "draw a diagram of this answer", "show this as a sequence diagram" or
-"畫一張圖說明 git rebase". The skill picks the diagram type from your question (a pipeline reads left to right), sizes
+"畫一張圖說明 git rebase". The skill picks the format from the content: Mermaid for steps and arrows (a flow, a sequence
+of messages, the states of one thing), hand-written SVG for a concept, a spatial relation, a proportion or a timeline,
+which boxes and arrows cannot show. It picks the diagram type from your question (a pipeline reads left to right), sizes
 the diagram to the topic and splits it only when the rendered image is hard to read. Each diagram has a title, labels
 with a short name and one detail line, colors with a fixed meaning (for example pass green, fail red) explained by a
-legend, and one caption line that says what to look at. You get the Mermaid code in the reply, and `diagram.mmd` and
-`caption.md` in `out/diagram-explainer/<slug>/`.
+legend, and one caption line that says what to look at. For Mermaid you get the code in the reply, and `diagram.mmd`
+and `caption.md` in `out/diagram-explainer/<slug>/`; for SVG you get `diagram.svg` and `caption.md` there, and the
+saved paths in the reply.
 
-- Only `flowchart`, `sequenceDiagram` and `stateDiagram-v2`, in syntax that renders on GitHub and in common tools. A
-  stdlib checker script checks every diagram before you see it.
+- Mermaid: only `flowchart`, `sequenceDiagram` and `stateDiagram-v2`, in syntax that renders on GitHub and in common
+  tools. SVG: designed for each topic, with its own background so it reads the same on light and dark pages. A stdlib
+  checker script checks every diagram before you see it (for SVG: no scripts or outside files, readable text size and
+  contrast).
 - Optional rendering to `diagram.svg` and `diagram.png` needs [uv](https://docs.astral.sh/uv/), network access, and
   Google Chrome, Microsoft Edge or Playwright's Chromium. The skill never downloads a browser without asking you. Without
   a browser, you still get the checked Mermaid source.

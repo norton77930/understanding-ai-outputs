@@ -106,7 +106,7 @@ Karpathy 的貼文提出一個**格式階梯**：越往上越花工夫做，但�
 | Skill | 怎麼要求 | 你會得到 | 需要 |
 | :--- | :--- | :--- | :--- |
 | `ste-writing` | 「用 STE 解釋」「用 STE 改寫這段」 | 寬鬆版簡化技術英文（Simplified Technical English）風格的文字；中文對話會用中文套用相同原則 | 不需要 |
-| `diagram-explainer` | 「畫一張圖說明這個」 | 1 到 3 張 Mermaid 圖（流程圖、時序圖、狀態圖），附圖例和一句說明 | 不需要；轉 PNG 需要 uv 和 Chromium 瀏覽器 |
+| `diagram-explainer` | 「畫一張圖說明這個」 | 1 到 3 張圖，附圖例和一句說明：流程、時序、狀態用 Mermaid，概念、比例、時間軸用手寫 SVG | 不需要；轉 PNG 需要 uv 和 Chromium 瀏覽器 |
 | `html-explainer` | 「做一個互動網頁說明這個」 | 一個獨立的 `index.html`，有逐步播放、滑桿、切換或展開 | 不需要；渲染檢查需要 uv 和 Chromium 瀏覽器 |
 | `video-explainer` | 「做一支解說影片」 | MP4、字幕和旁白稿：快速（約 1 分鐘）、標準（2 到 4 分鐘）或深入（5 到 10 分鐘） | uv 和 ffmpeg |
 
@@ -128,9 +128,9 @@ Karpathy 的貼文提出一個**格式階梯**：越往上越花工夫做，但�
 <details>
 <summary><b>diagram-explainer 詳細說明</b></summary>
 
-要明確說你要圖，例如「畫一張圖說明這個回答」「用時序圖表示」或「畫一張圖說明 git rebase」。skill 會依你的問題選圖的類型（流水線一律由左到右），依主題決定圖的大小，只有渲染出來不好讀時才拆成多張。每張圖都有標題；標籤是一個短名稱加一行細節；顏色有固定意思（例如通過是綠色、失敗是紅色），並用圖例說明；最後附一句話告訴你該看哪裡。回覆裡會附 Mermaid 原始碼，`out/diagram-explainer/<slug>/` 裡有 `diagram.mmd` 和 `caption.md`。
+要明確說你要圖，例如「畫一張圖說明這個回答」「用時序圖表示」或「畫一張圖說明 git rebase」。skill 會依內容選格式：步驟和箭頭（流程、訊息先後、一件事的狀態）用 Mermaid；概念、空間關係、比例或時間軸這類方框箭頭畫不出來的，用手寫 SVG。接著依你的問題選圖的類型（流水線一律由左到右），依主題決定圖的大小，只有渲染出來不好讀時才拆成多張。每張圖都有標題；標籤是一個短名稱加一行細節；顏色有固定意思（例如通過是綠色、失敗是紅色），並用圖例說明；最後附一句話告訴你該看哪裡。Mermaid 圖會在回覆裡附原始碼，`out/diagram-explainer/<slug>/` 裡有 `diagram.mmd` 和 `caption.md`；SVG 圖則存成同一個資料夾裡的 `diagram.svg` 和 `caption.md`，回覆裡附檔案路徑。
 
-- 只用 `flowchart`、`sequenceDiagram` 和 `stateDiagram-v2`，語法在 GitHub 和常見工具上都能顯示。每張圖在給你看之前，都會先用只依賴標準函式庫的檢查腳本檢查。
+- Mermaid 只用 `flowchart`、`sequenceDiagram` 和 `stateDiagram-v2`，語法在 GitHub 和常見工具上都能顯示。SVG 依主題設計，自帶背景，在淺色和深色頁面上看起來一樣。每張圖在給你看之前，都會先用只依賴標準函式庫的檢查腳本檢查（SVG 會檢查：沒有 script、不引用外部檔案、文字大小和對比夠讀）。
 - 轉成 `diagram.svg` 和 `diagram.png` 是選用功能，需要 [uv](https://docs.astral.sh/uv/)、網路，以及 Google Chrome、Microsoft Edge 或 Playwright 的 Chromium。skill 不會在沒問你的情況下下載瀏覽器。沒有瀏覽器時，你一樣會拿到檢查過的 Mermaid 原始碼。
 - 標籤遵守 STE 原則。這些原則的靈感來自 ASD-STE100，不是官方版本，也沒有 ASD 背書。
 - 只有你指定、而且電腦上有安裝時，才會用 D2 或 Graphviz。

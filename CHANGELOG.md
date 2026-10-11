@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `diagram-explainer` skill: hand-written SVG for concepts, spatial relations, proportions and timelines; Mermaid stays
+  for flows, sequences and states, and a tool the user names (D2, Graphviz) still wins (#54). New stdlib
+  `svg_check.py` checker with unit tests: well-formed XML, a `viewBox`, an opaque background, no scripts, event
+  handlers, `foreignObject` or outside references, text contrast of at least 4.5:1, and a font-size floor (fails below
+  11 units per 1200 units of width; warns below 12 px at an 800 px display width); warnings for text that may fall
+  outside the canvas, colors it cannot resolve and files over 200 KB. `render_diagram.py` also turns an SVG into a PNG
+  for the layout check. New `references/svg-drawing.md`.
+
+### Changed
+
+- `video-explainer` skill: Chinese narration is about 45 to 60 characters per scene in `standard` and `deep` mode, and
+  about 30 (25 to 35) in `quick` mode and the `short` preset, so zh-TW videos reach their mode's length (#53). `plan`
+  reports `zh_scene_chars` (range, average, per scene) for a Chinese storyboard and adds one notice when the average is
+  outside the range; when short Chinese scenes also make the video too short, that notice says to write fuller scenes,
+  not to add scenes. The length estimate uses the Chinese speech rate of the engine that will speak: edge-tts 3.85
+  characters per second (measured), other engines 3.05; `plan` reports it as `speech_rate`. Before, edge-tts videos
+  came out about 20% shorter than estimated, so a too-short deep video got no notice. `plan` also adds a notice when
+  the estimate is less than 5% above the mode's lower length bound.
+- `diagram-explainer` description and plugin description: Mermaid or SVG.
+
 ## [1.0.0] - 2026-10-10
 
 First public release: four skills (`ste-writing`, `diagram-explainer`, `html-explainer`, `video-explainer`), each with
