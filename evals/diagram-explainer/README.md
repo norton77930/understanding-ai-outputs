@@ -22,7 +22,7 @@ The topics are in `topics/` (see `topics/README.md` for their status). All are z
 
 ## What one run does
 
-1. Ask an agent "Draw a diagram that explains the following." plus the topic's Source (not its hints or reader points). The request is the same in both arms.
+1. Ask an agent the topic's `- Request:` line when it has one (for example an overview sheet request), else "Draw a diagram that explains the following.", plus the topic's Source (not its hints or reader points). The request is the same in both arms.
    - with-skill: `claude -p ... --plugin-dir <plugin dir>`
    - baseline: the same command without `--plugin-dir`
    - both: `--allowedTools Bash,Read,Write,Edit,Skill,Glob,Grep` (never a permission-bypass mode)

@@ -112,7 +112,7 @@ one skill. Install only the ones you need.
 | Skill | Ask for | You get | Needs |
 | :--- | :--- | :--- | :--- |
 | `ste-writing` | "explain in STE", "rewrite this in STE" | Text in a relaxed Simplified Technical English style | Nothing |
-| `diagram-explainer` | "draw a diagram of this" | One to three diagrams with a legend and a caption: Mermaid for flows, sequences and states, hand-written SVG for concepts, proportions and timelines | Nothing; uv and a Chromium browser for PNG |
+| `diagram-explainer` | "draw a diagram of this" | One to three diagrams with a legend and a caption: Mermaid for flows, sequences and states, hand-written SVG for concepts, proportions and timelines; one multi-panel overview sheet on request ("一張圖看懂 X") | Nothing; uv and a Chromium browser for PNG |
 | `html-explainer` | "make an interactive page of this" | One self-contained `index.html` with step-through, sliders, toggles or reveals | Nothing; uv and a Chromium browser for the render check |
 | `video-explainer` | "make an explainer video of this" | MP4, captions and script: quick (about 1 min), standard (2 to 4 min) or deep (5 to 10 min) | uv and ffmpeg |
 

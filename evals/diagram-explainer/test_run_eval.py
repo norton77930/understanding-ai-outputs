@@ -69,6 +69,19 @@ class ParseTopicTest(unittest.TestCase):
         self.assertIn("瀏覽器先檢查快取。", prompt)
         self.assertNotIn("第一點", prompt)
 
+    def test_request_line_replaces_the_default_request(self):
+        topic = run_eval.parse_topic("05", TOPIC.replace(
+            "- Language: zh-TW", "- Language: zh-TW\n- Request: 把以下內容整理成一張總覽圖。"))
+        self.assertEqual(topic["request"], "把以下內容整理成一張總覽圖。")
+        prompt = run_eval.build_prompt(topic)
+        self.assertTrue(prompt.startswith("把以下內容整理成一張總覽圖。\n\n"))
+        self.assertIn("瀏覽器先檢查快取。", prompt)
+
+    def test_no_request_line_keeps_the_default_request(self):
+        topic = run_eval.parse_topic("04", TOPIC)
+        self.assertIsNone(topic["request"])
+        self.assertTrue(run_eval.build_prompt(topic).startswith(run_eval.REQUEST))
+
 
 class ExtractMermaidTest(unittest.TestCase):
     def test_first_mermaid_block(self):

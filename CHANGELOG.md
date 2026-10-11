@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   11 units per 1200 units of width; warns below 12 px at an 800 px display width); warnings for text that may fall
   outside the canvas, colors it cannot resolve and files over 200 KB. `render_diagram.py` also turns an SVG into a PNG
   for the layout check. New `references/svg-drawing.md`.
+- `diagram-explainer` skill: overview sheets (#42). On an explicit request for a whole-topic overview ("one sheet that
+  explains X", "一張圖看懂 X", "總覽圖"; "cheat sheet" alone does not count), the skill draws one hand-written SVG
+  sheet with 3 to 6 lettered panels, a title block and one legend. `svg_check.py --sheet` checks text size for a
+  1600 px display width. New `references/sheet-drawing.md`. Trigger eval: 23/23.
 - `video-explainer` skill: ElevenLabs narration engine (#45), used only when the storyboard names it with a voice ID
   (`"engine": {"name": "elevenlabs", "voice": "<voice_id>"}`, model `eleven_multilingual_v2`); a set key never
   changes the default engine. The key comes only from `ELEVENLABS_API_KEY`: it is read at synthesis time, sent only in

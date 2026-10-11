@@ -1,11 +1,11 @@
 ---
 name: diagram-explainer
-description: Explain a topic or a piece of AI output as a diagram with a one-line caption, checked and saved to files: Mermaid for flows, sequences and states, hand-written SVG for concepts, spatial relations, proportions and timelines. Use ONLY when the user explicitly asks for a diagram, chart, flowchart, sequence diagram or picture of how something works, such as "draw a diagram of this", "show this flow as a sequence diagram", "visualize this as a picture" or "畫一張圖說明". Never use for videos, web pages, STE text, data plots from numbers, artwork, logos or icons, fixing broken Mermaid code, or questions about diagram notation.
+description: Explain a topic or a piece of AI output as a diagram with a one-line caption, checked and saved to files: Mermaid for flows, sequences and states, hand-written SVG for concepts, spatial relations, proportions and timelines, and a multi-panel SVG overview sheet when asked for one. Use ONLY when the user explicitly asks for a diagram, chart, flowchart, sequence diagram, picture of how something works, or one overview image of a whole topic, such as "draw a diagram of this", "show this flow as a sequence diagram", "visualize this as a picture", "one sheet that explains X", "畫一張圖說明" or "一張圖看懂 X". Never use for videos, web pages, STE text, text cheat sheets, data plots from numbers, artwork, logos or icons, fixing broken Mermaid code, or questions about diagram notation.
 ---
 
 # Diagram explainer
 
-Turn a topic, or an answer from this conversation, into one to three diagrams that are easy to read at a glance. Each diagram answers one question, has a title, two-line labels where a detail helps, colors with a fixed meaning and a legend, and one caption line that says what to look at. Flows, sequences and states are Mermaid; concepts, spatial relations, proportions and timelines are hand-written SVG. The user gets the files in `out/diagram-explainer/<slug>/`.
+Turn a topic, or an answer from this conversation, into one to three diagrams that are easy to read at a glance. Each diagram answers one question, has a title, two-line labels where a detail helps, colors with a fixed meaning and a legend, and one caption line that says what to look at. Flows, sequences and states are Mermaid; concepts, spatial relations, proportions and timelines are hand-written SVG. On an explicit request for a whole-topic overview, it draws one overview sheet instead (see "Overview sheet"). The user gets the files in `out/diagram-explainer/<slug>/`.
 
 ## Files
 
@@ -15,12 +15,14 @@ Turn a topic, or an answer from this conversation, into one to three diagrams th
 - `references/diagram-types.md`: which output and type answers which question, with one passing example per Mermaid type. Read it before you pick.
 - `references/mermaid-syntax.md`: the supported Mermaid syntax (title, two-line labels, color palette, legend), quoting rules and the fragile syntax to avoid.
 - `references/svg-drawing.md`: when to draw SVG, the required structure, a passing example, the checker rules in plain words, and light and dark hosts. Read it before you draw SVG.
+- `references/sheet-drawing.md`: the overview sheet: when to make one, panel kinds, grid layout, text sizes at the sheet display width, title block, legend, long text and a passing example. Read it before you draw a sheet.
 - `references/checks.md`: flags, JSON fields, exit codes and environment variables of the scripts.
 
 ## Workflow
 
 1. **Find the question.** Write down the one question the diagram answers, for example "What happens when a user logs in?". When the source is AI output from the conversation, keep its facts. Do not add steps or parts it does not mention.
 2. **Pick the output** from the content (details in `references/diagram-types.md`):
+   - the user explicitly asks for an overview of the whole topic on one image ("one sheet that explains X", "an overview poster of X", "一張圖看懂 X", "整理成一張總覽圖", "總覽圖"): an overview sheet; follow "Overview sheet" below instead of steps 3 to 10. "Cheat sheet" alone does not count; "cheat sheet" with a picture word ("畫成 cheat sheet", "cheat sheet 圖") does
    - steps and arrows (a flow, who talks to whom in order, the states of one thing): Mermaid
    - a concept, a spatial relation (what sits where, what is inside what), a proportion (how full, how much of the whole) or a timeline: hand-written SVG
    - the user names a tool (Mermaid, SVG, D2, Graphviz): that tool (D2 and Graphviz: see "Other tools")
@@ -53,6 +55,17 @@ Turn a topic, or an answer from this conversation, into one to three diagrams th
     - the saved paths (source, caption, and the SVG and PNG when rendered)
 
     Do not paste SVG source into the reply; the paths are enough. Add one line when rendering was skipped, with the reason. Add any layout problem left after two layout fix rounds.
+
+## Overview sheet
+
+Only on an explicit overview request (step 2). Without one, nothing here applies. Details and a passing example are in `references/sheet-drawing.md`.
+
+1. **Panels.** Write 3 to 6 sub-questions that together give the overview. Each one becomes a panel with a letter tab (A, B, C ...) in reading order and a one-line heading. Pick each panel kind from its content: a tree or hierarchy, an annotated sentence or code line, a status table, value bars, a timeline, or a small flow.
+2. **Draw one SVG.** A landscape canvas (1600 units wide is the simplest), panels on a grid, a title block (topic, source, date) and one legend for the whole sheet. Each color keeps one meaning in every panel. Labels, wording and language follow steps 6 and 7; break long text into lines by hand.
+3. **Save** `sheet.svg` and `caption.md` (one caption line: where to start and what the colors mean) in `out/diagram-explainer/<slug>/`, as in step 8.
+4. **Check** with `python <skill folder>/scripts/svg_check.py sheet.svg --sheet`. `--sheet` judges text at the 1600 px display width a sheet is viewed at; the hard floor stays. Fix every issue, as in step 9.
+5. **Render and look** as in step 10, at most two layout fix rounds. Also look for text clipped by a panel border and colors used against the legend.
+6. **Reply** with the caption line and the saved paths, as in step 11.
 
 ## Other tools
 

@@ -11,6 +11,8 @@ Draw SVG when the idea has a shape that boxes and arrows cannot show:
 
 Use Mermaid for steps and arrows: a flow, a sequence of messages, the states of one thing. Mermaid is easier to edit and renders on GitHub as code. If the user names a tool, use that tool.
 
+An overview sheet (several panels on one image, only on an explicit overview request) is also hand-written SVG. Its layout, text sizes and check flag are in `sheet-drawing.md`.
+
 ## Design
 
 There is no template. Design each SVG for its topic and draw the idea itself: a bar that fills up for a proportion, parts placed where they are for a spatial relation, an axis with marks for a timeline. The checker is a floor (safe, readable); it does not judge the design. Keep the same discipline as the Mermaid path: one question per diagram, two-line labels, STE-principle wording, colors with one fixed meaning and a legend.

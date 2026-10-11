@@ -106,7 +106,7 @@ Karpathy 的貼文提出一個**格式階梯**：越往上越花工夫做，但�
 | Skill | 怎麼要求 | 你會得到 | 需要 |
 | :--- | :--- | :--- | :--- |
 | `ste-writing` | 「用 STE 解釋」「用 STE 改寫這段」 | 寬鬆版簡化技術英文（Simplified Technical English）風格的文字；中文對話會用中文套用相同原則 | 不需要 |
-| `diagram-explainer` | 「畫一張圖說明這個」 | 1 到 3 張圖，附圖例和一句說明：流程、時序、狀態用 Mermaid，概念、比例、時間軸用手寫 SVG | 不需要；轉 PNG 需要 uv 和 Chromium 瀏覽器 |
+| `diagram-explainer` | 「畫一張圖說明這個」 | 1 到 3 張圖，附圖例和一句說明：流程、時序、狀態用 Mermaid，概念、比例、時間軸用手寫 SVG；說「一張圖看懂 X」時畫成一張多面板總覽圖 | 不需要；轉 PNG 需要 uv 和 Chromium 瀏覽器 |
 | `html-explainer` | 「做一個互動網頁說明這個」 | 一個獨立的 `index.html`，有逐步播放、滑桿、切換或展開 | 不需要；渲染檢查需要 uv 和 Chromium 瀏覽器 |
 | `video-explainer` | 「做一支解說影片」 | MP4、字幕和旁白稿：快速（約 1 分鐘）、標準（2 到 4 分鐘）或深入（5 到 10 分鐘） | uv 和 ffmpeg |
 
