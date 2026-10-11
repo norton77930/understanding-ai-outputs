@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `html-explainer` skill: opt-in named page styles, `blueprint` first (#55). Only a style the user names loads
+  `references/styles/<name>.md` (engineering-drawing look: light and dark tokens, panels with letter tabs, a title
+  block, numbered pins, status strokes); without a named style nothing changes. A new optional content pattern,
+  "Make the assumptions visible", for AI output with assumptions or open decisions: a done / assumed / future legend
+  that never relies on color alone, and an open-questions panel (our assumption, the question, who to ask, what it
+  affects). The skill never invents an assumption the source does not contain.
+
 ## [1.0.0] - 2026-10-10
 
 First public release: four skills (`ste-writing`, `diagram-explainer`, `html-explainer`, `video-explainer`), each with
