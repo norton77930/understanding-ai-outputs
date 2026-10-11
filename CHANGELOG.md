@@ -28,6 +28,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `narration_cost` (characters, estimated credits, a dated price note), with a notice when the key is not set. A
   storyboard engine field that looks like a credential fails validation. The doctor reports only whether the key is
   set (`elevenlabs_api_key`). `youtube` and `short` get a licence notice for the free plan.
+- `html-explainer` skill: opt-in named page styles, `blueprint` first (#55). Only a style the user names loads
+  `references/styles/<name>.md` (engineering-drawing look: light and dark tokens, panels with letter tabs, a title
+  block, numbered pins, status strokes); without a named style nothing changes. A new optional content pattern,
+  "Make the assumptions visible", for AI output with assumptions or open decisions: a done / assumed / future legend
+  that never relies on color alone, and an open-questions panel (our assumption, the question, who to ask, what it
+  affects). The skill never invents an assumption the source does not contain.
 
 ### Changed
 
