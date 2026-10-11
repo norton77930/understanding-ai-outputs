@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">
+  <title>No viewBox</title>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <text x="20" y="40" font-size="16">This image cannot scale</text>
+</svg>

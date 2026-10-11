@@ -12,5 +12,5 @@ Set the preset with the storyboard `preset` field. The values come from `PRESETS
 - `short` keeps the bottom 16% of the frame clear for app controls. It draws each scene's whole narration in a band above that zone (`layout.narration`). Scene code must not draw there.
 - The storyboard `mode` (`quick`, `standard`, `deep`) sets the length and the scene count. See "Modes" in `SKILL.md`. Use `short` with `quick`.
 - `plan` adds a notice when the estimated length is outside the mode's length, and when a `short` video is over 60 s. Shorten the storyboard when it is over the limit.
-- `youtube` and `short` with edge-tts add a publishing notice. See "Before you publish" in `narration-engines.md`.
+- `youtube` and `short` with edge-tts or ElevenLabs add a publishing notice. See "Before you publish" in `narration-engines.md`.
 - Render time grows with resolution: `youtube` takes about twice as long as `explainer` for the final render. `plan` gives the estimate.

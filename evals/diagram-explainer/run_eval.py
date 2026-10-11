@@ -13,14 +13,23 @@ explains the following." plus the topic's Source, in two arms (same request):
     baseline    claude -p ...   (no plugin)
 Each arm runs in its own scratch folder outside the repo and outside ~/.claude.
 The harness takes the Mermaid the agent saved (*.mmd files), else the first
-```mermaid block of the reply, and measures it per arm: diagram_check.py pass
-and issue count, node count (participants for sequence diagrams), label
-overruns, render success (render_diagram.py through `uv run`) and diagram type
-against the topic's expected type. Both scripts come from
-<plugin dir>/skills/diagram-explainer/scripts/.
+```mermaid block of the reply, else the hand-written SVG the agent saved, and
+measures it per arm: the checker pass and issue count, node count (participants
+for sequence diagrams), label overruns, render success (render_diagram.py
+through `uv run`) and diagram type against the topic's expected type (a Mermaid
+header such as `flowchart TD`, or `svg`). Mermaid is checked with
+diagram_check.py, hand-written SVG with svg_check.py (exit code, issue and
+warning rules recorded; node, message and label metrics stay n/a for SVG).
+All scripts come from <plugin dir>/skills/diagram-explainer/scripts/.
+An .svg counts as hand-written only when no .mmd with the same stem sits in the
+same folder: the Mermaid path also writes diagram.svg beside diagram.mmd, and
+that is a render, not a drawing.
+The with-skill checker gate is svg_check.py for SVG and diagram_check.py for
+Mermaid; the baseline is reported, never gated.
 Both arms are compared as PNG: render_diagram.py writes the PNG of a Mermaid
-diagram; a hand-written SVG (the baseline's usual answer) is screenshotted to
-PNG with headless Chrome or Edge (no uv, no Playwright; see svg_to_png).
+diagram; a hand-written SVG is rendered by `uv run render_diagram.py FILE.svg`,
+else (uv, Playwright or the render failed) screenshotted with headless Chrome or
+Edge (see svg_to_png); the method used is recorded.
 There is no LLM judge. The harness writes runs/<timestamp>/review.html, a blind
 review page: per topic the reader points, both images as 圖 A / 圖 B in a random
 order (reproducible from --seed, recorded), two 1-5 axes (理解, 呈現) and the
@@ -82,16 +91,18 @@ COPY_SUFFIXES = {".mmd", ".md", ".svg", ".png", ".json"}
 # --------------------------------------------------------------------------
 
 def parse_topic(topic_id, text):
-    """Read language, expected type, Source and the reader points from a topic file."""
+    """Read language, the optional Request line, expected type, Source and the reader
+    points from a topic file."""
     lang = re.search(r"^- Language:\s*(\S+)", text, re.M)
+    request = re.search(r"^- Request:\s*(.+?)\s*$", text, re.M)
     expected = re.search(r"^- Expected diagram type:\s*`([^`]+)`", text, re.M)
     source = _section(text, "Source")
     if not (lang and expected and source):
         raise ValueError(f"topic {topic_id}: missing Language, Expected diagram type or Source")
     points = [line[2:].strip() for line in (_section(text, "Reader should understand") or "").splitlines()
               if line.startswith("- ")]
-    return {"id": topic_id, "lang": lang.group(1), "expected_type": expected.group(1).strip(),
-            "source": source, "points": points}
+    return {"id": topic_id, "lang": lang.group(1), "request": request.group(1) if request else None,
+            "expected_type": expected.group(1).strip(), "source": source, "points": points}
 
 
 def _section(text, title):
@@ -100,8 +111,9 @@ def _section(text, title):
 
 
 def build_prompt(topic):
-    """The request plus the Source only (no hints, no reader points). Same in both arms."""
-    return f"{REQUEST}\n\n{topic['source'].strip()}\n"
+    """The request (the topic's Request line, else REQUEST) plus the Source only (no hints,
+    no reader points). Same in both arms."""
+    return f"{topic.get('request') or REQUEST}\n\n{topic['source'].strip()}\n"
 
 
 _FENCE_RE = re.compile(r"^[ \t]*```[ \t]*mermaid[ \t]*\n(.*?)\n[ \t]*```", re.M | re.S | re.I)
@@ -130,6 +142,22 @@ def choose_diagrams(saved_mmd, reply, saved_svg):
     if saved_svg:
         return list(saved_svg), "file", "svg"
     return [], None, None
+
+
+def handwritten_svgs(svgs, mmds):
+    """Split saved .svg paths into (hand-written, renders of a Mermaid file).
+
+    The skill's Mermaid path writes diagram.svg (and diagram.png) next to
+    diagram.mmd. An SVG is such a render when a .mmd with the same stem sits in
+    the same folder (suffixes compare case-insensitively); every other SVG was
+    drawn by the agent. choose_diagrams still prefers saved .mmd files.
+    """
+    mermaid = {(Path(p).parent, Path(p).stem) for p in mmds if Path(p).suffix.lower() == ".mmd"}
+    hand, rendered = [], []
+    for svg in svgs:
+        svg = Path(svg)
+        (rendered if (svg.parent, svg.stem) in mermaid else hand).append(svg)
+    return hand, rendered
 
 
 def diagram_header(code):
@@ -174,19 +202,43 @@ def type_matches(expected, actual):
 def arm_metrics(codes, checks, renders, expected, fmt="mermaid"):
     """Metrics for one arm from its diagrams.
 
-    codes: Mermaid sources; checks: diagram_check.py JSON per diagram (None if
-    the checker failed); renders: True (rendered) / False (Mermaid error) /
-    None (rendering not available) per diagram. Counts are summed over the
-    diagrams; pass needs every diagram to pass; the first diagram decides the type.
-    fmt "svg": hand-drawn SVG, so every Mermaid metric is None and the type is "svg".
+    codes: diagram sources; checks: diagram_check.py JSON per Mermaid diagram,
+    svg_check.py JSON per hand-written SVG (None if the checker failed);
+    renders: True (rendered) / False (render error) / None (rendering not
+    available) per diagram. Counts are summed over the diagrams; pass needs
+    every diagram to pass; the first diagram decides the type.
+    fmt "svg": hand-written SVG. Node, message and label-overrun metrics are
+    None, the type is "svg" (type_ok only when the topic expects svg) and the
+    checker is svg_check.py. Both formats also record the checker exit codes and
+    the issue and warning rule codes.
     """
     if not codes:
         return {"diagrams": 0, "checker_pass": False, "issues": None, "nodes": None, "messages": None,
-                "label_overruns": None, "render_ok": False, "type": None, "type_ok": False}
-    if fmt == "svg":
-        return {"diagrams": len(codes), "checker_pass": None, "issues": None, "nodes": None, "messages": None,
-                "label_overruns": None, "render_ok": None, "type": "svg", "type_ok": False}
+                "label_overruns": None, "render_ok": False, "type": None, "type_ok": False,
+                "checker_exit": [], "issue_rules": [], "warning_rules": []}
     known = [c for c in checks if c is not None]
+    rules = {
+        "checker_exit": [c.get("exit_code") for c in known],
+        "issue_rules": [i.get("rule") for c in known for i in c.get("issues") or []],
+        "warning_rules": [w.get("rule") for c in known for w in c.get("warnings") or []],
+    }
+    if fmt == "svg":
+        if not known:
+            checker_pass = None
+        elif len(known) < len(checks):
+            checker_pass = False if any(not c["pass"] for c in known) else None
+        else:
+            checker_pass = all(c["pass"] for c in known)
+        if False in renders:
+            render_ok = False
+        elif None in renders or not renders:
+            render_ok = None
+        else:
+            render_ok = True
+        return {"diagrams": len(codes), "checker_pass": checker_pass,
+                "issues": len(rules["issue_rules"]) if known else None, "nodes": None, "messages": None,
+                "label_overruns": None, "render_ok": render_ok, "type": "svg",
+                "type_ok": diagram_header(expected) == "svg", **rules}
     nodes = messages = overruns = issues = 0
     has_messages = False
     for c in known:
@@ -211,7 +263,7 @@ def arm_metrics(codes, checks, renders, expected, fmt="mermaid"):
     return {"diagrams": len(codes), "checker_pass": checker_pass, "issues": issues if known else None,
             "nodes": nodes if known else None, "messages": messages if has_messages else None,
             "label_overruns": overruns if known else None, "render_ok": render_ok,
-            "type": kind, "type_ok": bool(type_matches(expected, kind))}
+            "type": kind, "type_ok": bool(type_matches(expected, kind)), **rules}
 
 
 def extract_json_object(text):
@@ -278,6 +330,44 @@ def browser_screenshot_cmd(browser, svg_path, png_path, size, profile_dir):
             Path(svg_path).resolve().as_uri()]
 
 
+def svg_png(render, fallback, fallback_png, exists=lambda p: Path(p).is_file()):
+    """PNG of a hand-written SVG: render_diagram.py first, headless Chrome/Edge second.
+
+    render() -> (True/False/None, render_diagram.py JSON); fallback() -> error
+    string or None (the browser screenshot, written to fallback_png). Returns
+    {"png", "method", "fallback_reason", "error"}: method is "render_diagram.py",
+    "browser" or None (both failed, error says why); fallback_reason is why
+    render_diagram.py was not used (None when it was).
+    """
+    ok, data = render()
+    data = data or {}
+    png = data.get("png")
+    if ok is True and png and exists(png):
+        return {"png": png, "method": "render_diagram.py", "fallback_reason": None, "error": None}
+    reason = (data.get("error") or data.get("hint") or "render_diagram.py wrote no PNG")[:300]
+    error = fallback()
+    if error:
+        return {"png": None, "method": None, "fallback_reason": reason, "error": error}
+    return {"png": str(fallback_png), "method": "browser", "fallback_reason": reason, "error": None}
+
+
+CHECKER_SCRIPTS = {"mermaid": "diagram_check.py", "svg": "svg_check.py"}
+
+
+def skill_gate(results):
+    """The with-skill arm's checker-pass gate: per topic the checker of its format
+    (svg_check.py for hand-written SVG, diagram_check.py for Mermaid), failed when
+    that checker did not pass. The baseline is reported in the metrics, never gated.
+    Returns {"checker": {topic: script or None}, "failed": [topic ids], "pass": bool}."""
+    checker, failed = {}, []
+    for r in results:
+        entry = r["arms"]["with-skill"]
+        checker[r["id"]] = CHECKER_SCRIPTS.get(entry.get("format"))
+        if (entry.get("metrics") or {}).get("checker_pass") is False:
+            failed.append(r["id"])
+    return {"checker": checker, "failed": failed, "pass": not failed}
+
+
 def aggregate(results):
     """Totals per arm over topics: checker, render, size, images, cost and agent time."""
     arms = {}
@@ -323,13 +413,46 @@ def arm_summary_line(arm, a, topics):
             f"cost ${a['cost_usd']:.2f}, {a['seconds']:.0f} s")
 
 
+def gate_line(gate):
+    """One report line for the with-skill checker gate, naming the checker used per topic."""
+    used = ", ".join(f"{tid}: {script or 'n/a'}" for tid, script in gate["checker"].items())
+    if gate["pass"]:
+        return f"- With-skill checker gate: PASS ({used}); the baseline is reported, never gated"
+    failed = ", ".join(f"{tid}: {gate['checker'][tid]}" for tid in gate["failed"])
+    return f"- With-skill checker gate: FAIL ({failed}); the baseline is reported, never gated"
+
+
+def checker_cell(entry, metrics):
+    """Checker column: PASS/FAIL/n/a, with "(svg_check)" for a hand-written SVG."""
+    cell = _yn(metrics["checker_pass"])
+    return f"{cell} (svg_check)" if entry.get("format") == "svg" else cell
+
+
+def render_cell(entry, metrics):
+    """Render column. A hand-written SVG shows which tool made its PNG."""
+    if metrics["type"] != "svg":
+        return _render_cell(metrics["render_ok"])
+    methods = sorted(set(entry.get("render_methods") or []))
+    if methods:
+        return "ok (" + ", ".join(methods) + ")"
+    return "FAIL" if metrics["render_ok"] is False else "n/a"
+
+
+def type_line(arm, expected, entry, metrics):
+    """Details line: what the topic expected and what the arm drew."""
+    got = metrics["type"] or "no diagram"
+    kind = {"svg": " (hand-written SVG)", "mermaid": " (Mermaid)"}.get(entry.get("format"), "")
+    verdict = "type ok" if metrics["type_ok"] else "type not as expected"
+    return f"- {arm}: expected {expected}, got {got}{kind}: {verdict}"
+
+
 def render_report(meta, results, agg):
     """Render report.md as a string. The A/B key is not in it (report.json only)."""
     n = agg["topics"]
     out = [f"# diagram-explainer eval report ({meta['timestamp']})\n",
            f"- Model: {meta['model'] or 'claude CLI default'}",
            f"- claude version: {meta['claude_version']}",
-           f"- Request: `{REQUEST}` + the topic's Source",
+           f"- Request: the topic's `- Request:` line, else `{REQUEST}`, + the topic's Source",
            f"- Plugin dir (with-skill arm, checker, renderer): `{meta['plugin_dir']}`",
            f"- Topics: {', '.join(r['id'] for r in results)}",
            f"- Review page: `{meta.get('review')}` (A/B key in report.json only; seed {meta['seed']})",
@@ -338,7 +461,8 @@ def render_report(meta, results, agg):
     out += [arm_summary_line(arm, agg["arms"][arm], n) for arm in ARMS]
     wall = meta.get("wall_seconds")
     out.append(f"- Total: cost ${agg['cost_usd']:.2f}, agent time {agg['seconds']:.0f} s"
-               + (f", wall time {wall:.0f} s" if wall is not None else "") + "\n")
+               + (f", wall time {wall:.0f} s" if wall is not None else ""))
+    out.append(gate_line(skill_gate(results)) + "\n")
     out += ["## Totals per arm\n",
             "| Arm | Checker pass | Issues | Label overruns | Rendered | Render skipped | Not Mermaid (SVG) | "
             "Type as expected | Nodes per topic | Images (PNG) | Turns | Cost | Agent time |",
@@ -360,9 +484,9 @@ def render_report(meta, results, agg):
             meta_ = e.get("meta") or {}
             out.append(f"| {r['id']} | {arm} | {m['diagrams']} ({e.get('mermaid_from') or 'none'}) | "
                        f"{m['type'] or 'n/a'} ({'ok' if m['type_ok'] else 'expected ' + r['expected_type']}) | "
-                       f"{_yn(m['checker_pass'])} | {_num(m['issues'])} | {_num(m['nodes'])} | "
+                       f"{checker_cell(e, m)} | {_num(m['issues'])} | {_num(m['nodes'])} | "
                        f"{_num(m['messages'])} | {_num(m['label_overruns'])} | "
-                       f"{'n/a' if m['type'] == 'svg' else _render_cell(m['render_ok'])} | "
+                       f"{render_cell(e, m)} | "
                        f"{len(e.get('images') or [])} | {_num(meta_.get('num_turns'))} | "
                        f"{_num(meta_.get('cost_usd'), '${:.2f}')} | {_num(e.get('seconds'), '{:.0f} s')} |")
     out.append("\n## Details\n")
@@ -370,12 +494,19 @@ def render_report(meta, results, agg):
         out.append(f"### {r['id']} ({r['lang']}, expected `{r['expected_type']}`)\n")
         for arm in ARMS:
             e = r["arms"][arm]
+            m = e.get("metrics") or arm_metrics([], [], [], r["expected_type"])
+            out.append(type_line(arm, r["expected_type"], e, m))
             if e.get("note"):
                 out.append(f"- {arm}: {e['note']} ({', '.join(e.get('files') or [])})")
             for c in e.get("checks") or []:
                 for issue in (c or {}).get("issues") or []:
                     out.append(f"- {arm} checker issue: {issue.get('rule')} (line {issue.get('line')}): "
                                f"{issue.get('message')}")
+                for warning in (c or {}).get("warnings") or []:
+                    out.append(f"- {arm} checker warning: {warning.get('rule')} (line {warning.get('line')}): "
+                               f"{warning.get('message')}")
+            for why in e.get("png_fallbacks") or []:
+                out.append(f"- {arm} PNG fallback to the browser: {why}")
             for rd in e.get("renders") or []:
                 if rd and rd.get("error"):
                     out.append(f"- {arm} render error: {rd['error'][:300]}")
@@ -501,14 +632,21 @@ def run_claude(cmd, prompt, cwd, timeout, env):
     return reply, meta
 
 
-def run_checker(plugin_dir, path):
-    """diagram_check.py through its CLI. Returns the JSON, or None on a usage/input error."""
-    script = Path(plugin_dir) / SKILL_SCRIPTS / "diagram_check.py"
+def run_checker(plugin_dir, path, script_name="diagram_check.py", env=None):
+    """diagram_check.py (Mermaid) or svg_check.py (hand-written SVG) through its CLI.
+
+    Returns the JSON plus "exit_code", or None on a usage/input error (exit 2)."""
+    script = Path(plugin_dir) / SKILL_SCRIPTS / script_name
     proc = subprocess.run([sys.executable, "-I", str(script), str(path)], capture_output=True, text=True,
-                          encoding="utf-8")
+                          encoding="utf-8", env=env)
     if proc.returncode not in (0, 1):
         return None
-    return json.loads(proc.stdout)
+    try:
+        data = json.loads(proc.stdout)
+    except ValueError:
+        return None
+    data["exit_code"] = proc.returncode
+    return data
 
 
 def run_render(plugin_dir, path, out_dir, env):
@@ -605,17 +743,44 @@ def run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env):
     copy_agent_files(cwd, out / "agent-files")
 
     saved_mmd = find_saved_diagrams(cwd)
-    saved_svg = [] if saved_mmd else find_saved_diagrams(cwd, "*.svg")
-    read = [p.read_text(encoding="utf-8", errors="replace").strip("\n") for p in saved_mmd or saved_svg]
-    entry["codes"], entry["mermaid_from"], entry["format"] = choose_diagrams(
-        read if saved_mmd else [], entry["reply"], read if saved_svg else [])
+    # An .svg beside an .mmd with the same stem is the skill's Mermaid render, not a drawing.
+    saved_svg, mermaid_renders = handwritten_svgs(find_saved_diagrams(cwd, "*.svg"), saved_mmd)
+    if saved_mmd and mermaid_renders:
+        entry["mermaid_renders_ignored"] = [str(p.relative_to(cwd)) for p in mermaid_renders]
+    read_mmd = [p.read_text(encoding="utf-8", errors="replace").strip("\n") for p in saved_mmd]
+    read_svg = [p.read_text(encoding="utf-8", errors="replace").strip("\n") for p in saved_svg]
+    entry["codes"], entry["mermaid_from"], entry["format"] = choose_diagrams(read_mmd, entry["reply"], read_svg)
+    entry["checker"] = CHECKER_SCRIPTS.get(entry["format"])
     if entry["mermaid_from"] == "file":
-        entry["files"] = [str(p.relative_to(cwd)) for p in saved_mmd or saved_svg]
+        entry["files"] = [str(p.relative_to(cwd)) for p in (saved_mmd if entry["format"] == "mermaid" else saved_svg)]
     if entry["format"] == "svg":
-        entry["note"] = "no Mermaid: the agent drew SVG by hand; converted to PNG for the review, no Mermaid metrics"
+        entry["note"] = ("no Mermaid: the agent drew SVG by hand; checked with svg_check.py, "
+                         "converted to PNG for the review, no Mermaid metrics")
     elif not entry["codes"]:
-        errors.append(f"{arm}: no .mmd file, no ```mermaid block in the reply and no .svg file")
+        errors.append(f"{arm}: no .mmd file, no ```mermaid block in the reply and no hand-written .svg file")
     renders = []
+    entry["render_methods"] = []
+    entry["png_fallbacks"] = []
+    if entry["format"] == "svg":
+        for i, rel in enumerate(entry.get("files") or [], 1):
+            svg = out / "agent-files" / rel
+            check = run_checker(args.plugin_dir, svg, "svg_check.py", env)
+            if check is None:
+                errors.append(f"{arm}: svg_check.py failed on {rel}")
+            entry["checks"].append(check)
+            png = svg.with_name(svg.stem + "-render.png")
+            got = svg_png(lambda: run_render(args.plugin_dir, svg, out / "render" / f"svg-{i}", env),
+                          lambda: svg_to_png(svg, png, scratch_run / "tmp"), png)
+            entry["renders"].append(got)
+            if got["method"]:
+                renders.append(True)
+                entry["render_methods"].append(got["method"])
+                entry["images"].append(got["png"])
+                if got["fallback_reason"]:
+                    entry["png_fallbacks"].append(f"{rel}: {got['fallback_reason']}")
+            else:
+                renders.append(False)
+                errors.append(f"{arm}: {got['error']}")
     for i, code in enumerate(entry["codes"] if entry["format"] == "mermaid" else [], 1):
         path = out / f"eval-diagram-{i}.mmd"
         path.write_text(code + "\n", encoding="utf-8")
@@ -628,16 +793,7 @@ def run_arm(topic, arm, args, claude_exe, run_dir, scratch_run, env):
         entry["renders"].append(data)
     entry["metrics"] = arm_metrics(entry["codes"], entry["checks"], renders, topic["expected_type"],
                                    entry["format"] or "mermaid")
-    if entry["format"] == "svg":
-        for rel in entry.get("files") or []:
-            svg = out / "agent-files" / rel
-            png = svg.with_name(svg.stem + "-render.png")
-            problem = svg_to_png(svg, png, scratch_run / "tmp")
-            if problem:
-                errors.append(f"{arm}: {problem}")
-            else:
-                entry["images"].append(str(png))
-    else:
+    if entry["format"] != "svg":
         entry["images"] = [rd["png"] for rd in entry["renders"]
                            if rd and rd.get("png") and Path(rd["png"]).is_file()]
     return entry, errors
@@ -703,8 +859,9 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=900, help="seconds per claude call (default 900)")
     args = parser.parse_args(argv)
     args.plugin_dir = args.plugin_dir.resolve()
-    if not (args.plugin_dir / SKILL_SCRIPTS / "diagram_check.py").is_file():
-        raise SystemExit(f"no {SKILL_SCRIPTS / 'diagram_check.py'} under --plugin-dir {args.plugin_dir}")
+    for script in ("diagram_check.py", "svg_check.py"):
+        if not (args.plugin_dir / SKILL_SCRIPTS / script).is_file():
+            raise SystemExit(f"no {SKILL_SCRIPTS / script} under --plugin-dir {args.plugin_dir}")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     args.seed = args.seed or timestamp
@@ -714,8 +871,12 @@ def main(argv=None):
 
     if args.dry_run:
         print(f"env: {AGENT_ENV} + TMPDIR/TEMP/TMP={scratch_run / 'tmp'}")
-        print(f"hand-written SVG -> PNG with: {find_browser() or 'no Chrome/Edge found (set DIAGRAM_EVAL_BROWSER)'}")
+        print("hand-written SVG (an .svg with no .mmd of the same stem beside it) -> "
+              f"{SKILL_SCRIPTS / 'svg_check.py'}; Mermaid -> {SKILL_SCRIPTS / 'diagram_check.py'}")
+        print("hand-written SVG -> PNG with: uv run render_diagram.py FILE.svg, "
+              f"else headless {find_browser() or 'Chrome/Edge (none found; set DIAGRAM_EVAL_BROWSER)'}")
         for t in topics:
+            print(f"[{t['id']}] expected diagram type: {t['expected_type']}")
             for arm in ARMS:
                 print(f"[{t['id']}] {arm} cwd: {scratch_run / t['id'] / arm}")
                 print(f"[{t['id']}] {arm}: {' '.join(build_cmd(claude_exe, arm, args.model, args.plugin_dir))}")
@@ -745,7 +906,7 @@ def main(argv=None):
             "wall_seconds": round(time.monotonic() - started, 1)}
     (run_dir / "report.md").write_text(render_report(meta, results, agg), encoding="utf-8")
     (run_dir / "report.json").write_text(
-        json.dumps({"meta": meta, "aggregate": agg,
+        json.dumps({"meta": meta, "aggregate": agg, "skill_gate": skill_gate(results),
                     "ab_key": {tid: {"A": o[0], "B": o[1]} for tid, o in orders.items()},
                     "topics": results}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>External CSS</title>
+  <style>
+    @import url("https://fonts.example.com/css?family=Inter");
+    .badge { fill: url(#fade); }
+    .photo { fill: url('https://example.com/texture.png'); }
+  </style>
+  <defs>
+    <linearGradient id="fade"><stop offset="0" stop-color="#ffffff"/></linearGradient>
+  </defs>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <rect x="20" y="20" width="40" height="40" style="fill: url(http://example.com/a.png)"/>
+  <rect x="80" y="20" width="40" height="40" filter="url(#none)"/>
+</svg>
