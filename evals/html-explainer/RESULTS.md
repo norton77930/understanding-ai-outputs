@@ -2,6 +2,42 @@
 
 Newest run first. The earlier run is kept below as history; its single-axis ratings are not comparable with the two-axis ratings of the next run.
 
+## Run 20261011-103229 (round 4: blueprint on request, visible assumptions, issue #55)
+
+2026-10-11. Model: claude CLI default (`claude` 2.1.296). One run per topic and arm, workers 4, timeout 1200 s per agent run. Command: `python evals/html-explainer/run_eval.py --workers 4` (plugin dir: branch `feat/55-html-styles`, PR #60). A/B seed 331874. Full report: `evals/html-explainer/runs/20261011-103229/report.md` (git-ignored, local only).
+
+**Topics:** round 4 (approved 2026-10-11). 01 and 02 send a blueprint request ("用工程圖紙（blueprint）風格做一個互動網頁…") to both arms; 03 and 04 send the default request. 01, 02 and 04 are AI output with stated assumptions; 03 has none.
+
+### Automated metrics
+
+**Verdict (with-skill arm): PASS.**
+
+- with-skill: page_check 4/4, render_check 4/4, cost $3.33, 1019 s agent time.
+- baseline: page_check 2/4 (missing-dark-mode on both blueprint pages, 01 and 02), render_check 3/4 (01 overflows at 390 px), cost $2.45, 1337 s agent time.
+- Total: $5.78, 2356 s agent time.
+
+| Topic | Request | Arm | page_check (issue rules) | render_check | No overflow at 390 | Size | Turns | Cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|
+| 01-db-migration-plan | blueprint | with-skill | PASS | PASS | PASS | 24.0 KB | 19 | $0.94 | 338 s |
+| 01-db-migration-plan | blueprint | baseline | FAIL (missing-dark-mode) | FAIL | FAIL | 24.1 KB | 3 | $0.46 | 140 s |
+| 02-cache-proposal | blueprint | with-skill | PASS | PASS | PASS | 27.6 KB | 20 | $0.92 | 266 s |
+| 02-cache-proposal | blueprint | baseline | FAIL (missing-dark-mode) | PASS | PASS | 32.7 KB | 16 | $0.80 | 256 s |
+| 03-hash-table-resize | default | with-skill | PASS | PASS | PASS | 26.3 KB | 18 | $0.90 | 250 s |
+| 03-hash-table-resize | default | baseline | PASS | PASS | PASS | 29.8 KB | 1 | $0.73 | 836 s |
+| 04-hosting-cost-estimate | default | with-skill | PASS | PASS | PASS | 18.1 KB | 13 | $0.57 | 166 s |
+| 04-hosting-cost-estimate | default | baseline | PASS | PASS | PASS | 20.7 KB | 7 | $0.46 | 105 s |
+
+### Maintainer ratings (blind, two axes)
+
+Pending. Open `evals/html-explainer/runs/20261011-103229/review.html` (local, git-ignored). Same procedure and axes as the run below; for 01 and 02 also judge how well the page carries the blueprint look that the request names, and for every topic whether assumptions are shown as assumptions (and none invented).
+
+| Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
+|---|---|---|---|---|---|---|---|
+| 01-db-migration-plan | | | | | | | |
+| 02-cache-proposal | | | | | | | |
+| 03-hash-table-resize | | | | | | | |
+| 04-hosting-cost-estimate | | | | | | | |
+
 ## Run 20261009-021002 (round 3: new topics, bespoke design guidance)
 
 2026-10-09. Model: claude CLI default. One run per topic and arm, workers 4, timeout 1200 s per agent run. Command: `python evals/html-explainer/run_eval.py --workers 4`. Skill state: `e854aff` (bare skeleton, "Design" section, math-consistency layout check). Full report: `evals/html-explainer/runs/20261009-021002/report.md` (git-ignored, local only).
