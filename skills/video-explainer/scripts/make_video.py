@@ -143,6 +143,10 @@ MODES = {
     "deep": {"scenes": [15, 30], "target_seconds": [300, 600], "zh_scene_chars": [45, 60]},
 }
 SHORT_PRESET = "short"
+# `plan` adds a notice when the estimate is less than this fraction above the
+# mode's lower length bound: the measured speech can run a few percent shorter
+# than the estimate (run 20261011-103432: 305 s estimated, 298.6 s rendered).
+LOWER_BOUND_MARGIN = 0.05
 DEFAULT_MODE = "standard"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -696,6 +700,10 @@ def cmd_plan(args):
         else:
             notices.append(f"Estimated length {total} s is below the {mode} mode target of "
                            f"{low}-{high} s; add scenes or switch to a quicker mode.")
+    elif total < low * (1 + LOWER_BOUND_MARGIN):
+        notices.append(f"Estimated length {total} s is close to the lower end of the {mode} mode "
+                       f"target of {low}-{high} s; the real video can be a few percent shorter, "
+                       f"so add a little narration.")
     limit = preset["max_seconds"]
     if limit is not None and total > limit:
         notices.append(f"Estimated length {total} s exceeds the {limit} s limit for the "

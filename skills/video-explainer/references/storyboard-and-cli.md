@@ -25,7 +25,7 @@
 | `slug` | yes | Lower-case letters, digits and single hyphens. Names the output folder. |
 | `lang` | yes | Narration language tag: `en`, `zh-TW`, or another tag (best effort, see `narration-engines.md`). |
 | `preset` | no | `explainer` (default), `youtube` or `short`. See `output-presets.md`. |
-| `mode` | no | `quick` (3 to 6 scenes, about 1 minute), `standard` (default; 6 to 15 scenes, 2 to 4 minutes) or `deep` (15 to 30 scenes, 5 to 10 minutes). `plan` fails when the scene count is outside the mode's range, and adds a notice when the estimated length is outside the mode's length. `preview` and `final` do not check the scene count. |
+| `mode` | no | `quick` (3 to 6 scenes, about 1 minute), `standard` (default; 6 to 15 scenes, 2 to 4 minutes) or `deep` (15 to 30 scenes, 5 to 10 minutes). `plan` fails when the scene count is outside the mode's range, and adds a notice when the estimated length is outside the mode's length or less than 5% above its lower end. `preview` and `final` do not check the scene count. |
 | `engine` | no | `null` for automatic selection, an engine name (`"kokoro"`, `"edge-tts"`), or `{"name": "kokoro", "voice": "zf_001"}`. The object form needs `name`; a voice alone is an error. The `silent` engine is for tests only. |
 | `scenes` | yes | Non-empty list, in play order. |
 | `scenes[].id` | yes | Unique. Also the function name in the scenes module and the frame file name. Lower-case letters, digits and underscores, not starting with a digit (`s1`, `intro`). Not a Python keyword or a Windows device name (`con`, `nul`, `com1`). |

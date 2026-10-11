@@ -78,7 +78,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 | `deep` | 5 to 10 minutes | 15 to 30 | Intuition first, then build up. Come back to earlier objects. |
 
 - Words in the request set the mode without a question: "3b1b", "3Blue1Brown", "deep dive" → `deep`. "One minute", "quick" → `quick`. "Short", "Reels", vertical video → the `short` preset with `quick`.
-- `plan` fails when the scene count is outside the mode's range. It adds a notice when the estimated length is outside the mode's length.
+- `plan` fails when the scene count is outside the mode's range. It adds a notice when the estimated length is outside the mode's length, or less than 5% above its lower end (the real video can be a few percent shorter than the estimate). Aim for the middle of the mode's length, not its edge.
 - For Chinese narration, each mode also has a range of characters per scene: `quick` 25 to 35, `standard` and `deep` 45 to 60. The `short` preset uses the `quick` range in every mode. `plan` adds a notice when the average is outside the range. When it is too low, write fuller scenes, not more scenes. The same notice then also states a length below the mode's length.
 - The `short` preset stays at 60 seconds or less in every mode.
 - The audience sets the pace. For a general audience or a beginner, add the background first and move slowly. For an expert, skip the basics.

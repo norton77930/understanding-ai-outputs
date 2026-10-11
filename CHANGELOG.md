@@ -25,7 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   outside the range; when short Chinese scenes also make the video too short, that notice says to write fuller scenes,
   not to add scenes. The length estimate uses the Chinese speech rate of the engine that will speak: edge-tts 3.85
   characters per second (measured), other engines 3.05; `plan` reports it as `speech_rate`. Before, edge-tts videos
-  came out about 20% shorter than estimated, so a too-short deep video got no notice.
+  came out about 20% shorter than estimated, so a too-short deep video got no notice. `plan` also adds a notice when
+  the estimate is less than 5% above the mode's lower length bound.
 - `diagram-explainer` description and plugin description: Mermaid or SVG.
 
 ## [1.0.0] - 2026-10-10

@@ -458,6 +458,34 @@ class ChineseSpeechRateTests(unittest.TestCase):
         self.assertTrue(any("below the deep mode target" in n for n in data["notices"]),
                         data["notices"])
 
+    def plan_scenes(self, count, hanzi):
+        board = load_storyboard()
+        board.pop("engine")
+        board.update(lang="zh-TW", mode="deep", scenes=[
+            {"id": f"s{i + 1}", "narration": "測" * hanzi} for i in range(count)])
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "VIDEO_EXPLAINER_OFFLINE"}
+        return run([sys.executable, str(SCRIPT), "plan", str(path),
+                    "--out", str(self.tmp / "out")], env=env)
+
+    def test_estimate_just_above_the_lower_bound_gets_a_margin_notice(self):
+        # 22 x (52 / 3.85 + 0.35) = 304.8 s: inside 300-600, but a real video can
+        # run a few percent shorter (run 20261011-103432: 305 s estimated, 298.6 s).
+        code, data = self.plan_scenes(22, 52)
+        self.assertEqual(code, 0, data)
+        self.assertAlmostEqual(data["estimated_total_seconds"], 304.8, delta=0.3)
+        margin = [n for n in data["notices"] if "close to the" in n]
+        self.assertEqual(len(margin), 1, data["notices"])
+        self.assertIn("lower end of the deep mode target", margin[0])
+        self.assertFalse(any("below the deep mode target" in n for n in data["notices"]))
+
+    def test_estimate_well_above_the_lower_bound_gets_no_margin_notice(self):
+        # 24 x (52 / 3.85 + 0.35) = 332.5 s
+        code, data = self.plan_scenes(24, 52)
+        self.assertEqual(code, 0, data)
+        self.assertFalse(any("close to the" in n for n in data["notices"]), data["notices"])
+
     def test_explicit_edge_tts_uses_the_same_rate(self):
         code, data = self.plan(engine="edge-tts")
         self.assertEqual(code, 0, data)

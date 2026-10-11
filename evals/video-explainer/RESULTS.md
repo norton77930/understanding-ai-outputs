@@ -2,6 +2,19 @@
 
 The newest run is first; run `20261008-035608` is kept below as history.
 
+## Run `20261011-103432` (issue #53): deep re-run after the speech-rate fix
+
+Status: automated metrics only. Command: `python evals/video-explainer/run_eval.py --topics 01 --no-baseline --workers 1 --timeout 5400` (plugin dir: branch `feat/v1.1-wave1` at `caf2034`, per-engine speech rate). Full report: `evals/video-explainer/runs/20261011-103432/report.md` (git-ignored, local only).
+
+**With-skill verdict: PASS** (render, 1280x720, layout check 100% (23/23), A/V diff 0.00 s, captions 23/23). Cost $2.01, wall time 4100 s.
+
+| Topic | Mode | Scenes | Average characters per scene (range) | Plan estimate | Video length (target) | In range |
+|---|---|---|---|---|---|---|
+| 01-binary-search | deep | 23 | 49.7 (45-60) | 305.0 s | 298.6 s (300-600 s) | no, by 1.4 s |
+
+- **The estimate is now accurate:** 305.0 s estimated, 298.6 s rendered (2% off; before the fix 306 s vs 244 s, 25% off).
+- **The video still missed the target by 1.4 s,** because the agent aimed at the edge of the range: 305 s is inside 300-600, so `plan` gave no notice. Follow-up: `plan` now also adds a notice when the estimate is less than 5% above the mode's lower length bound, and SKILL.md says to aim for the middle of the mode's length.
+
 ## Run `20261011-090459` (issue #53): zh-TW scene length, with-skill only
 
 Status: automated metrics only (no baseline, no rating; this run checks the #53 length rule). Model: claude CLI default (`claude` 2.1.296). Command: `python evals/video-explainer/run_eval.py --topics 01,03 --no-baseline --workers 2 --timeout 5400` (plugin dir: branch `feat/v1.1-wave1`, PR #59, with 45-60 characters per scene in `standard` and `deep`). Full report: `evals/video-explainer/runs/20261011-090459/report.md` (git-ignored, local only).
