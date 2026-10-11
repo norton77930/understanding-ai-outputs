@@ -29,14 +29,20 @@ Newest run first. The earlier run is kept below as history; its single-axis rati
 
 ### Maintainer ratings (blind, two axes)
 
-Pending. Open `evals/html-explainer/runs/20261011-103229/review.html` (local, git-ignored). Same procedure and axes as the run below; for 01 and 02 also judge how well the page carries the blueprint look that the request names, and for every topic whether assumptions are shown as assumptions (and none invented).
+Rated by the maintainer on 2026-10-11 on the published review page (each page opened and used in an in-page viewer). Same procedure and axes as the run below; for 01 and 02 also judge how well the page carries the blueprint look that the request names, and for every topic whether assumptions are shown as assumptions (and none invented).
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-db-migration-plan | | | | | | | |
-| 02-cache-proposal | | | | | | | |
-| 03-hash-table-resize | | | | | | | |
-| 04-hosting-cost-estimate | | | | | | | |
+| 01-db-migration-plan | 5 | 5 | 5 | 5 | tie | A more interactive, B easier to understand (A互動性好，B比較易懂) | B |
+| 02-cache-proposal | 5 | 5 | 5 | 5 | tie | A more interactive, B easier to understand (A互動性好，B比較易懂) | B |
+| 03-hash-table-resize | 5 | 5 | 5 | 4 | A | | A |
+| 04-hosting-cost-estimate | 5 | 5 | 5 | 4 | A | A more interactive (A互動性較好) | B |
+
+Result: with-skill better on 1 topic (03), tie on 2 (01, 02), worse on 1 (04). Understanding is 5 in every page.
+
+- (a) Blueprint on request (01, 02): ties. Both times the maintainer found the with-skill page easier to understand and the baseline page more interactive. The baseline pages here are larger dashboards (an animated request simulator, a live chart, check-off cards); the with-skill pages are step-through panels with a summary.
+- (b) Default pages (03, 04): one better and one worse, so no clear regression and no clear gain. On 04 the with-skill page (a receipt step-through, a quiz and three sliders) was rated less interactive than the baseline (sliders, a scenario chart and a sensitivity table): presentation 4 vs 5.
+- Follow-up signal for html-explainer: the skill's pages explain well but can come out less interactive than the baseline. This is a design note for a later round, not a blocker for #55.
 
 ## Run 20261009-021002 (round 3: new topics, bespoke design guidance)
 
