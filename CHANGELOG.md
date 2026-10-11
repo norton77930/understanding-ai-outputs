@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   11 units per 1200 units of width; warns below 12 px at an 800 px display width); warnings for text that may fall
   outside the canvas, colors it cannot resolve and files over 200 KB. `render_diagram.py` also turns an SVG into a PNG
   for the layout check. New `references/svg-drawing.md`.
+- `video-explainer` skill: ElevenLabs narration engine (#45), used only when the storyboard names it with a voice ID
+  (`"engine": {"name": "elevenlabs", "voice": "<voice_id>"}`, model `eleven_multilingual_v2`); a set key never
+  changes the default engine. The key comes only from `ELEVENLABS_API_KEY`: it is read at synthesis time, sent only in
+  the `xi-api-key` header, and never stored, cached, passed to child processes or printed (errors keep only the HTTP
+  status and ElevenLabs' error code; output and tracebacks are redacted). `plan` stays offline and reports
+  `narration_cost` (characters, estimated credits, a dated price note), with a notice when the key is not set. A
+  storyboard engine field that looks like a credential fails validation. The doctor reports only whether the key is
+  set (`elevenlabs_api_key`). `youtube` and `short` get a licence notice for the free plan.
 
 ### Changed
 
