@@ -2,6 +2,36 @@
 
 Newest run first. The earlier run is kept below as history: it was scored by an LLM judge reading source text, which the next run does not use, so its figures are not comparable with the blind two-axis ratings.
 
+## Run 20261011-134620 (round 4 topics, overview sheets, issue #42)
+
+Run `20261011-134620` (2026-10-11). Model: claude CLI default. `claude` 2.1.296. A/B seed `20261011-134620`. Command: `python evals/diagram-explainer/run_eval.py` (plugin dir: branch `feat/42-overview-sheet`, PR #62). Topics: round 4 (`topics/0*.md`, approved 2026-10-11): each asks for "一張圖看懂 X" through its `- Request:` line, and each expects one hand-written SVG sheet. Full report: `evals/diagram-explainer/runs/20261011-134620/report.md` (git-ignored, local only).
+
+### Automated metrics
+
+- with-skill: checker pass 3/3 (svg_check), rendered 3/3, type as expected 3/3 (SVG), cost $2.04, 624 s agent time.
+- baseline: checker pass 1/3 (84 issues on 02 and 03: mostly small-text and low-contrast), rendered 3/3, type as expected 3/3 (it also drew one SVG for each topic), cost $1.33, 458 s agent time.
+- Total: cost $3.37, agent time 1082 s, wall time 431 s.
+- The harness runs `svg_check.py` with its default display width, not `--sheet`, for both arms. This is stricter than the sheet check, and the same for both arms.
+
+| Topic | Arm | Diagrams (from) | Type (expected) | Checker | Issues | Render | Turns | Cost | Time |
+|---|---|---|---|---|---|---|---|---|---|
+| 01-https-overview | with-skill | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 10 | $0.67 | 184 s |
+| 01-https-overview | baseline | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 4 | $0.34 | 94 s |
+| 02-docker-overview | with-skill | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 11 | $0.65 | 214 s |
+| 02-docker-overview | baseline | 1 (file) | svg (ok) | FAIL (svg_check) | 59 | ok | 5 | $0.55 | 189 s |
+| 03-jwt-overview | with-skill | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 12 | $0.72 | 226 s |
+| 03-jwt-overview | baseline | 1 (file) | svg (ok) | FAIL (svg_check) | 25 | ok | 8 | $0.45 | 175 s |
+
+### Maintainer ratings (blind, two axes)
+
+Pending. Review page: `evals/diagram-explainer/runs/20261011-134620/review.html` (local, git-ignored). Same procedure and axes as the runs below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
+
+| Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
+|---|---|---|---|---|---|---|---|
+| 01-https-overview | | | | | | | |
+| 02-docker-overview | | | | | | | |
+| 03-jwt-overview | | | | | | | |
+
 ## Run 20261011-093008 (round 3 topics, hand-written SVG, issue #54)
 
 Run `20261011-093008` (2026-10-11). Model: claude CLI default. `claude` 2.1.296. Workers 4, timeout 900 s per call, A/B seed `20261011-093008`. Command: `python evals/diagram-explainer/run_eval.py` (plugin dir: branch `feat/v1.1-wave1`, PR #59). Topics: round 3 (`topics/0*.md`, approved 2026-10-11): three expect hand-written SVG, one (`04`) expects `sequenceDiagram`. Full report: `evals/diagram-explainer/runs/20261011-093008/report.md` (git-ignored, local only).
