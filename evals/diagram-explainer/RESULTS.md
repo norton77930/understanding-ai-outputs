@@ -24,13 +24,17 @@ Run `20261011-134620` (2026-10-11). Model: claude CLI default. `claude` 2.1.296.
 
 ### Maintainer ratings (blind, two axes)
 
-Pending. Review page: `evals/diagram-explainer/runs/20261011-134620/review.html` (local, git-ignored). Same procedure and axes as the runs below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
+Rated by the maintainer on 2026-10-11. Review page: `evals/diagram-explainer/runs/20261011-134620/review.html` (local, git-ignored). Same procedure and axes as the runs below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-https-overview | | | | | | | |
-| 02-docker-overview | | | | | | | |
-| 03-jwt-overview | | | | | | | |
+| 01-https-overview | 5 | 5 | 5 | 4 | A | A has more context (比較有脈絡) | A |
+| 02-docker-overview | 5 | 5 | 5 | 5 | tie | | B |
+| 03-jwt-overview | 5 | 5 | 5 | 5 | tie | | A |
+
+Result: with-skill 1 better, 2 ties, 0 worse. Understanding is 5 in every image; presentation is 5.0 for with-skill and 4.67 for baseline.
+
+Limit of this blind test: the maintainer noted that the two arms' styles are easy to tell apart. The with-skill sheets always have letter tabs, a title block and one legend, which the skill requires, so the A/B order does not hide the arm. Read these ratings as an unblinded comparison. Both arms also scored at the top of the scale, so this round shows the sheets are at least as good as the baseline, not that they are clearly better.
 
 ## Run 20261011-093008 (round 3 topics, hand-written SVG, issue #54)
 
