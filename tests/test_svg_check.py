@@ -297,6 +297,30 @@ class FontSizeTests(unittest.TestCase):
         self.assertEqual(rules(data), [])
         self.assertEqual(warning_rules(data), ["small-text-advisory"])
 
+    def test_sheet_flag_sets_display_width_1600_and_keeps_the_floor(self):
+        # A 2400-wide sheet: advisory 18 (12 x 2400 / 1600), floor 22 (11 x 2400 / 1200).
+        body = '<text x="10" y="40" font-size="22" fill="#222">Sheet</text>'
+        code, data = run(svg(body, view_box="0 0 2400 1200"), "--sheet")
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["limits"]["display_width"], 1600)
+        self.assertEqual(data["limits"]["min_font_size"], 18)
+        self.assertEqual(data["limits"]["floor_font_size"], 22)
+        self.assertEqual(data["warnings"], [])
+        code, data = run(svg(body, view_box="0 0 2400 1200"))  # default: 800 px
+        self.assertEqual(data["limits"]["min_font_size"], 36)
+        self.assertEqual(warning_rules(data), ["small-text-advisory"])
+
+    def test_sheet_below_the_floor_suggests_at_least_the_floor(self):
+        body = '<text x="10" y="40" font-size="20" fill="#222">Sheet</text>'
+        code, data = run(svg(body, view_box="0 0 2400 1200"), "--sheet")
+        self.assertEqual(code, 1, data)
+        self.assertEqual(rules(data), ["small-text"])
+        self.assertIn("Use font-size 22 or more", data["issues"][0]["message"])
+
+    def test_explicit_display_width_beats_sheet(self):
+        code, data = run(svg(""), "--sheet", "--display-width", "1000")
+        self.assertEqual(data["limits"]["display_width"], 1000)
+
     def test_bad_flag_exits_2_without_json(self):
         code, data = run(svg(""), "--min-font-px", "0")
         self.assertEqual(code, 2)

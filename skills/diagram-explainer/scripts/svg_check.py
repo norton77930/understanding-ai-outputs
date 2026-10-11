@@ -3,7 +3,7 @@
 
 Usage:
     python svg_check.py [FILE|-] [--display-width N] [--min-font-px N]
-                        [--floor-width N] [--floor-font-px N]
+                        [--floor-width N] [--floor-font-px N] [--sheet]
 
 Reads FILE (or stdin when FILE is omitted or "-") and prints one JSON object
 on stdout (UTF-8). Exit code: 0 = pass, 1 = check failed, 2 = usage or input
@@ -77,6 +77,8 @@ Font size has two tiers, both in viewBox units:
     width is usually shown at its own size or larger, so the tier stays at
     its px value. Flags: --display-width and --min-font-px set the
     recommendation, --floor-width and --floor-font-px set the floor.
+    --sheet is --display-width 1600 for an overview sheet (an explicit
+    --display-width wins); the floor does not change.
 
 Method (APPROXIMATE, not a renderer):
     - Styles: presentation attributes, then <style> rules with simple
@@ -107,6 +109,8 @@ EXIT_PASS, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
 SVG_NS = "http://www.w3.org/2000/svg"
 DEFAULT_LIMITS = {"display_width": 800, "min_font_px": 12,
                   "floor_width": 1200, "floor_font_px": 11}
+# An overview sheet is opened full screen or zoomed, not shown 800 px wide.
+SHEET_DISPLAY_WIDTH = 1600
 MIN_CONTRAST = 4.5
 MAX_BYTES = 200 * 1024
 DEFAULT_FONT_SIZE = 16.0
@@ -740,7 +744,7 @@ class Analyzer:
             self.report.issue(
                 "small-text", entry["line"],
                 f"text {entry['text']!r} is {size:g} units, below the floor {floor:g}; "
-                f"{where}. Use font-size {advised:g} or more")
+                f"{where}. Use font-size {max(floor, advised):g} or more")
         else:
             self.report.warn(
                 "small-text-advisory", entry["line"],
@@ -897,9 +901,17 @@ def main(argv=None):
                               "--floor-width"}
     for key, default in DEFAULT_LIMITS.items():
         parser.add_argument("--" + key.replace("_", "-"), dest=key, type=_positive,
-                            metavar="N", default=default,
+                            metavar="N", default=None,
                             help=f"{helps[key]} (default {default})")
+    parser.add_argument("--sheet", action="store_true",
+                        help=f"overview sheet: same as --display-width "
+                             f"{SHEET_DISPLAY_WIDTH} (an explicit --display-width wins)")
     args = parser.parse_args(argv)  # argparse exits with 2 on usage errors
+    if args.sheet and args.display_width is None:
+        args.display_width = SHEET_DISPLAY_WIDTH
+    for key, default in DEFAULT_LIMITS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, default)
 
     try:
         raw = read_input(args.file)

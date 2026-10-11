@@ -9,6 +9,8 @@
   {"query": "give me a mermaid diagram of what runs inside a Docker host: the engine, containers, volumes and networks", "should_trigger": true},
   {"query": "I don't get this answer. can you draw it as a diagram instead? \"A CDN edge server checks its cache. On a miss it asks the origin, stores the response and returns it to the user.\"", "should_trigger": true},
   {"query": "sketch a chart of how data moves through our pipeline: Kafka topic, Flink job, S3 bucket, then Athena queries", "should_trigger": true},
+  {"query": "I want an overview poster of how Kubernetes networking works: pods, services, ingress and DNS, all on one image I can pin next to my monitor", "should_trigger": true},
+  {"query": "幫我做一張圖看懂 TLS：握手、憑證鏈和金鑰交換，整理成一張總覽圖", "should_trigger": true},
 
   {"query": "make a short explainer video with narration that shows how DNS caching works", "should_trigger": false},
   {"query": "build an interactive HTML page that explains how a B-tree splits a node, with a button to insert keys", "should_trigger": false},
@@ -19,5 +21,6 @@
   {"query": "draw a cute cat sitting on a laptop keyboard, as SVG", "should_trigger": false},
   {"query": "draw.io or Lucidchart for architecture diagrams? our team of 8 needs shared editing and Confluence export", "should_trigger": false},
   {"query": "explain in words what this diagram says, I inherited it from a colleague:\n```mermaid\nsequenceDiagram\n  A->>B: lock\n  B-->>A: ok\n```", "should_trigger": false},
-  {"query": "explain step by step how garbage collection works in the JVM, I keep getting confused about generations", "should_trigger": false}
+  {"query": "explain step by step how garbage collection works in the JVM, I keep getting confused about generations", "should_trigger": false},
+  {"query": "給我一份 git 指令的 cheat sheet，列出最常用的二十個和一句說明就好", "should_trigger": false}
 ]
