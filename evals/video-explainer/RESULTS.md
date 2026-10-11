@@ -2,6 +2,19 @@
 
 The newest run is first; run `20261008-035608` is kept below as history.
 
+## Run `20261011-115835` (issue #53): deep re-run with the lower-bound notice
+
+Status: automated metrics only. Command: `python evals/video-explainer/run_eval.py --topics 01 --no-baseline --workers 1 --timeout 5400` (plugin dir: branch `feat/v1.1-wave1` at `80cd13a`: per-engine speech rate and the notice near the lower bound). Full report: `evals/video-explainer/runs/20261011-115835/report.md` (git-ignored, local only).
+
+**With-skill verdict: PASS** (render, 1280x720, layout check 100% (28/28), A/V diff 0.01 s, captions 28/28). Cost $2.28, wall time 3507 s.
+
+| Topic | Mode | Scenes | Average characters per scene (range) | Plan estimate | Video length (target) | In range |
+|---|---|---|---|---|---|---|
+| 01-binary-search | deep | 28 | 45.4 (45-60) | 340.2 s | 344.4 s (300-600 s) | yes |
+
+- **#53 acceptance met:** zh-TW `deep` 344.4 s (this run) and `standard` 133.0 s (run `20261011-090459`) both land inside their mode's length.
+- The estimate was 1% off (340.2 s vs 344.4 s). The agent aimed clear of the lower bound this time, so `plan` gave no notice.
+
 ## Run `20261011-103432` (issue #53): deep re-run after the speech-rate fix
 
 Status: automated metrics only. Command: `python evals/video-explainer/run_eval.py --topics 01 --no-baseline --workers 1 --timeout 5400` (plugin dir: branch `feat/v1.1-wave1` at `caf2034`, per-engine speech rate). Full report: `evals/video-explainer/runs/20261011-103432/report.md` (git-ignored, local only).
