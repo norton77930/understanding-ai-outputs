@@ -11,6 +11,8 @@ A page usually has one section per key point. For each section, pick the pattern
 | a result the reader can guess first | Predict-then-reveal |
 | a behavior that depends on the input (best case, worst case, edge case) | Preset scenarios |
 
+One content pattern works with any of these and with any style: "Make the assumptions visible" (at the end of this file). It is optional. Use it only when the source contains assumptions or open decisions.
+
 Rules for every pattern:
 
 - Show the point of the section before any interaction, in its first sentence.
@@ -427,3 +429,91 @@ Buttons load a prepared input: the best case, the worst case and an edge case. T
 - Keep the state of each section in its own variables and its own `show()` function. Give each element a unique `id`, for example `bs-next` and `sort-next`.
 - Use the same term for one thing in every section.
 - The first button on the page belongs to the first interactive section. Make it change the page.
+
+## Make the assumptions visible
+
+An optional content pattern for any style. Use it when the source is AI output that contains assumptions or open decisions, for example a plan, an architecture or a design. The reader then sees what the agent decided, what it assumed and what is still open.
+
+- **Never invent an assumption, a question or a status.** Use only the assumptions and open decisions that the source states, or that follow directly from its words ("we assume", "for now", "TBD", "to confirm"). If the source has none, skip the pattern.
+- **Status legend on the main figure.** Mark each part as done (or decided), assumed or future. Use a line style and a word as well as a color: solid for done, dashed for assumed, dotted for future. Put a legend with the three samples next to the figure.
+- **Open questions panel.** One row per open item: our assumption → the question → who to ask → what it affects. Fill "who to ask" from the source. If the source names nobody, write a role (for example "database owner") only when the source makes it clear; else write "not stated".
+- On a phone, each row stacks its four fields. Do not use a four-column table without `overflow-x: auto`.
+- A control can link the two parts: a button that highlights the assumed parts of the figure, or a pin per assumption that opens its row.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cache plan: what is assumed</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #555b63; --accent: #0b62c4; --panel: #eef1f5;
+          --done: #1b5fa8; --assumed: #8a4b00; --future: #5b6b80; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --fg: #e8eaed; --muted: #a9b0ba; --accent: #6fb1ff; --panel: #1f242b;
+            --done: #8cc0ff; --assumed: #ffc46b; --future: #a9b6c8; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem; }
+  button { font: inherit; padding: 0.4rem 0.9rem; background: var(--panel); color: var(--fg);
+           border: 2px solid var(--muted); border-radius: 0.4rem; }
+  button[aria-pressed="true"] { border-color: var(--assumed); font-weight: bold; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  svg { display: block; width: 100%; max-width: 100%; height: auto; }
+  svg text { fill: var(--fg); font-size: 14px; }
+  .box { fill: none; stroke-width: 2; transition: stroke-width 0.3s; }
+  .done { stroke: var(--done); }
+  .assumed { stroke: var(--assumed); stroke-dasharray: 6 4; }
+  .future { stroke: var(--future); stroke-dasharray: 1 5; stroke-linecap: round; }
+  .focus-assumed .box:not(.assumed) { opacity: 0.35; }
+  .focus-assumed .box.assumed { stroke-width: 4; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; padding: 0; list-style: none; }
+  .legend svg { display: inline-block; width: 2.5rem; vertical-align: middle; }
+  .open { padding: 0; list-style: none; }
+  .open li { background: var(--panel); border-left: 4px dashed var(--assumed); padding: 0.6rem 0.8rem; margin: 0.6rem 0; }
+  .open dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.8rem; margin: 0; }
+  .open dt { color: var(--muted); }
+  .open dd { margin: 0; }
+  @media (max-width: 30rem) { .open dl { grid-template-columns: 1fr; } .open dd { margin-bottom: 0.3rem; } }
+  @media (prefers-reduced-motion: reduce) { .box { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cache plan: what is assumed</h1>
+  <p>The plan puts a cache in front of the database. The cache size is an assumption, and one question is still open.</p>
+  <button type="button" id="show-assumed" aria-pressed="false">Highlight assumed parts</button>
+  <svg id="figure" viewBox="0 0 360 90" role="img" aria-labelledby="fig-title">
+    <title id="fig-title">App, cache and database. The cache is assumed. A replica is future work.</title>
+    <rect class="box done" x="5" y="20" width="90" height="40"/><text x="50" y="45" text-anchor="middle">App</text>
+    <rect class="box assumed" x="135" y="20" width="90" height="40"/><text x="180" y="45" text-anchor="middle">Cache</text>
+    <rect class="box done" x="265" y="5" width="90" height="35"/><text x="310" y="27" text-anchor="middle">Database</text>
+    <rect class="box future" x="265" y="50" width="90" height="35"/><text x="310" y="72" text-anchor="middle">Replica</text>
+  </svg>
+  <ul class="legend" aria-label="Legend">
+    <li><svg viewBox="0 0 40 10" aria-hidden="true"><line class="box done" x1="0" y1="5" x2="40" y2="5"/></svg> Done</li>
+    <li><svg viewBox="0 0 40 10" aria-hidden="true"><line class="box assumed" x1="0" y1="5" x2="40" y2="5"/></svg> Assumed</li>
+    <li><svg viewBox="0 0 40 10" aria-hidden="true"><line class="box future" x1="0" y1="5" x2="40" y2="5"/></svg> Future</li>
+  </ul>
+  <h2>Open questions</h2>
+  <ol class="open">
+    <li><dl>
+      <dt>Our assumption</dt><dd>A 1 GB cache holds the hot data.</dd>
+      <dt>The question</dt><dd>How large is the hot data set?</dd>
+      <dt>Who to ask</dt><dd>Database owner</dd>
+      <dt>What it affects</dt><dd>Cache size and cost</dd>
+    </dl></li>
+  </ol>
+</main>
+<script>
+  const toggle = document.getElementById("show-assumed");
+  toggle.addEventListener("click", () => {
+    const on = toggle.getAttribute("aria-pressed") !== "true";
+    toggle.setAttribute("aria-pressed", String(on));
+    document.getElementById("figure").classList.toggle("focus-assumed", on);
+  });
+</script>
+</body>
+</html>
+```

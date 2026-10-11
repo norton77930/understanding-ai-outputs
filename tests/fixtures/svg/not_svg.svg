@@ -1,0 +1,5 @@
+<svg viewBox="0 0 400 200">
+  <title>No SVG namespace</title>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <text x="20" y="40" font-size="16">A browser shows this as plain XML</text>
+</svg>

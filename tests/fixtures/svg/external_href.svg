@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 400 200">
+  <title>External links</title>
+  <defs>
+    <circle id="dot" r="4" fill="#1565c0"/>
+  </defs>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <use href="#dot" x="10" y="10"/>
+  <image href="data:image/png;base64,iVBORw0KGgo=" x="0" y="0" width="1" height="1"/>
+  <image href="https://example.com/logo.png" x="20" y="20" width="40" height="40"/>
+  <use xlink:href="other.svg#shape" x="80" y="20"/>
+</svg>

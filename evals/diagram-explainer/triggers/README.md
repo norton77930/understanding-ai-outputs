@@ -1,10 +1,10 @@
 # diagram-explainer trigger eval
 
-Checks that the skill description fires only on explicit diagram requests (issue #27, spec #23 stories 1, 3 and 4). The set is `trigger-eval.json`: 20 queries in skill-creator's format (`{"query", "should_trigger"}`), ten that should trigger and ten that should not. Acceptance: at most 2 errors out of 20. Latest results are in `RESULTS.md`.
+Checks that the skill description fires only on explicit diagram requests (issue #27, spec #23 stories 1, 3 and 4). The set is `trigger-eval.json`: 23 queries in skill-creator's format (`{"query", "should_trigger"}`), twelve that should trigger and eleven that should not. Acceptance: at most 2 errors out of 23. The overview sheet (spec #23 revision 2026-10-11, issue #42) added three queries: two should-trigger and one should-not. Latest results are in `RESULTS.md`.
 
 ## Decisions
 
-- **Should trigger:** an explicit request to show how something works as a picture: "diagram", "flowchart", "sequence diagram", "state diagram", "mermaid diagram", "visualize as a picture", or "chart" of a flow. The set covers a topic and a given passage of text as input ("turn your explanation above into a flowchart"), English and zh-TW phrasing (畫一張圖, 流程圖), and each diagram type (sequence, state, flowchart TD, flowchart LR, containment).
+- **Should trigger:** an explicit request to show how something works as a picture: "diagram", "flowchart", "sequence diagram", "state diagram", "mermaid diagram", "visualize as a picture", or "chart" of a flow. The set covers a topic and a given passage of text as input ("turn your explanation above into a flowchart"), English and zh-TW phrasing (畫一張圖, 流程圖), and each diagram type (sequence, state, flowchart TD, flowchart LR, containment). It also covers an explicit request for an overview of a whole topic on one image, in English ("an overview poster of ...") and zh-TW (一張圖看懂, 總覽圖); the skill answers those with an overview sheet.
 - **Should not trigger:** requests for another explainer skill, and near-misses that share words with diagrams:
   - another rung of the format ladder: a video, an interactive HTML page, STE text (ADR 0003: each explainer skill answers its own request)
   - fixing a broken Mermaid diagram. The user wants a debugging answer for their own diagram, not a new diagram that explains a topic. The skill's workflow (pick a type, budgets, caption, saved files) does not fit. Decision: should not trigger.
@@ -14,6 +14,9 @@ Checks that the skill description fires only on explicit diagram requests (issue
   - a diagram tool recommendation (draw.io or Lucidchart)
   - explaining an existing diagram in words (the reverse direction)
   - an ordinary step-by-step explanation with no format request
+  - a text cheat sheet ("給我一份 git 指令的 cheat sheet"). "Cheat sheet" alone usually means a text list, so it does not trigger; only "cheat sheet" with a picture word ("畫成 cheat sheet", "cheat sheet 圖") is an overview request (spec #23 decision 3).
+
+This eval checks only whether the skill fires. Whether it draws a sheet or a single diagram is decided inside the skill: a single-question diagram request still triggers and still gets one diagram.
 
 ## Run it
 

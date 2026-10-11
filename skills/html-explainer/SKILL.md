@@ -11,8 +11,9 @@ Turn a topic, or an answer from this conversation, into one `index.html` file th
 
 - `scripts/page_check.py`: static check of the file rules. Standard library only.
 - `scripts/render_check.py`: loads the page in a headless browser and takes screenshots.
-- `references/interaction-patterns.md`: six patterns with complete examples, and how to combine them. Read it before you write the page.
+- `references/interaction-patterns.md`: six patterns with complete examples, how to combine them, and the optional "Make the assumptions visible" content pattern. Read it before you write the page.
 - `references/design-baseline.md`: the page rules, design guidance and a minimal skeleton.
+- `references/styles/blueprint.md`: the engineering-drawing look. Read it only when the user names that style (see "Named styles").
 - `references/checks.md`: both commands, their JSON, exit codes and environment variables.
 
 Run every command from the user's project root. The default output folder is `out/html-explainer/<slug>/` under the current folder. Use another folder if the user names one. If git does not ignore `out/`, tell the user. Do not change `.gitignore` unasked. On Windows, set `PYTHONUTF8=1` so Chinese text stays intact.
@@ -27,8 +28,8 @@ Run every command from the user's project root. The default output folder is `ou
    - a result the reader can guess first: predict-then-reveal
    - a behavior that depends on the input: preset scenarios
 
-   Several patterns on one page are normal. Use motion where the point is about change.
-2. **Page.** Write ONE file, `out/html-explainer/<slug>/index.html`. The skeleton in `references/design-baseline.md` is only the required minimum. Design the page for this topic, as "Design" in that file describes. The page must have:
+   Several patterns on one page are normal. Use motion where the point is about change. If the source is AI output that contains assumptions or open decisions (a plan, an architecture, a design), you can add "Make the assumptions visible" from the same file. Skip it when the source has none. Never invent an assumption.
+2. **Page.** Write ONE file, `out/html-explainer/<slug>/index.html`. The skeleton in `references/design-baseline.md` is only the required minimum. Design the page for this topic, as "Design" in that file describes. If the user names a style, apply "Named styles" below. The page must have:
    - `<html lang>` in the conversation's language, a `<title>` and a viewport meta.
    - Colors as CSS custom properties, with a `prefers-color-scheme: dark` override. Set the `body` background.
    - No horizontal scroll at 390 px.
@@ -48,6 +49,16 @@ Run every command from the user's project root. The default output folder is `ou
    - one line on how to use the page, for example "Press Next to step through each check."
    - the render check status: passed, or skipped with the reason
    - any problem left after two fix rounds
+
+## Named styles
+
+A style is opt-in. Only the user's request selects it.
+
+- **No named style:** nothing changes. Design the page for the topic. Never use a style file by default.
+- **A named style with a file:** read `references/styles/<name>.md` and apply its look. The topic still decides the sections and the patterns. Available: `blueprint` ("blueprint", "engineering drawing", "工程圖", "工程圖紙風格", "藍圖風格").
+- **An unknown style name:** design the page in that style as asked, without a reference file. Tell the user that the skill has no reference for that style.
+
+A style never removes a rule from `references/design-baseline.md`: dark mode, contrast, focus ring and the checks stay the same.
 
 ## Text
 

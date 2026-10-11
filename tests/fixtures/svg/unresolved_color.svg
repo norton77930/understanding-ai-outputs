@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>Colors the checker cannot read</title>
+  <defs>
+    <linearGradient id="band"><stop offset="0" stop-color="#1565c0"/><stop offset="1" stop-color="#0d2a4a"/></linearGradient>
+  </defs>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <text x="20" y="40" font-size="16" fill="hsl(220, 20%, 20%)">Text in hsl()</text>
+  <rect x="20" y="80" width="360" height="60" fill="url(#band)"/>
+  <text x="200" y="116" font-size="16" fill="#ffffff" text-anchor="middle">White on a gradient</text>
+</svg>

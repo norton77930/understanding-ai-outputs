@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <title>Low contrast</title>
+  <style>.muted { fill: #b0b0b0; }</style>
+  <rect width="400" height="200" fill="#ffffff"/>
+  <text class="muted" x="20" y="40" font-size="16">Light gray on white</text>
+  <rect x="20" y="80" width="360" height="60" fill="#1565c0"/>
+  <text x="200" y="116" font-size="16" fill="navy" text-anchor="middle">Navy on blue</text>
+  <text x="20" y="180" font-size="16" fill="#1f2937">Dark on white is fine</text>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 600">
+  <title>Small text on a wide canvas</title>
+  <style>.note { font: italic 12px/1.4 system-ui, sans-serif; }</style>
+  <rect width="1600" height="600" fill="#ffffff"/>
+  <text x="40" y="80" font-size="32" fill="#1f2937">Title at 32 units: 16 px at 800 px wide</text>
+  <text class="note" x="40" y="160" fill="#1f2937">Note at 12 units: 6 px at 800 px wide</text>
+</svg>

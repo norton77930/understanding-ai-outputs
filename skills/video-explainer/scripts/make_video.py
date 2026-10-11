@@ -55,6 +55,11 @@ block above, which `uv run` installs. Heavy imports happen only inside them.
 Narration engines (selection rules in select_engine()):
     kokoro    offline; en default (af_heart), zh-TW offline fallback (zf_001)
     edge-tts  network; zh-TW default (zh-TW-HsiaoChenNeural)
+    elevenlabs  network, paid; only when the storyboard names it with a voice
+              ID: {"name": "elevenlabs", "voice": "<voice_id>"}. The key comes
+              only from ELEVENLABS_API_KEY (read at synthesis, never stored,
+              printed or cached); ELEVENLABS_API_BASE overrides the API URL.
+              `plan` reports the characters and credits it will use.
     silent    tests only; silence sized from the text-length estimate
 Kokoro model files live in the doctor's cache dir (VIDEO_EXPLAINER_CACHE or
 the user cache dir), never in the project. When they are missing, `plan`
@@ -80,6 +85,8 @@ import sys
 import textwrap
 import time
 import traceback
+import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from pathlib import Path
@@ -97,6 +104,10 @@ PAD_SECONDS = 0.35
 # Speech rates measured in the prototype (natural explainer pace).
 EN_WORDS_PER_SECOND = 168 / 60
 ZH_HANZI_PER_SECOND = 3.05
+# Chinese rate per narration engine; an engine not listed speaks at
+# ZH_HANZI_PER_SECOND. edge-tts measured 2026-10-11 with zh-TW-HsiaoChenNeural,
+# run 20261011-090459, issue #53 (912 hanzi in 237.0 s).
+ZH_HANZI_PER_SECOND_BY_ENGINE = {"edge-tts": 3.85}
 
 # Output presets. Add a row to add a preset.
 #   max_seconds: length limit of the preset in every mode (None: the mode alone
@@ -129,13 +140,20 @@ PRESETS = {
 }
 DEFAULT_PRESET = "explainer"
 
-# Intent modes: the scene count range (outside it `plan` fails) and the target
-# length in seconds (outside it `plan` adds a notice). Add a row to add a mode.
+# Intent modes: the scene count range (outside it `plan` fails), the target
+# length in seconds (outside it `plan` adds a notice) and the characters per
+# Chinese scene (an average outside it makes `plan` add a notice). Add a row to
+# add a mode. The `short` preset uses the quick range of characters in every mode.
 MODES = {
-    "quick": {"scenes": [3, 6], "target_seconds": [30, 90]},
-    "standard": {"scenes": [6, 15], "target_seconds": [120, 240]},
-    "deep": {"scenes": [15, 30], "target_seconds": [300, 600]},
+    "quick": {"scenes": [3, 6], "target_seconds": [30, 90], "zh_scene_chars": [25, 35]},
+    "standard": {"scenes": [6, 15], "target_seconds": [120, 240], "zh_scene_chars": [45, 60]},
+    "deep": {"scenes": [15, 30], "target_seconds": [300, 600], "zh_scene_chars": [45, 60]},
 }
+SHORT_PRESET = "short"
+# `plan` adds a notice when the estimate is less than this fraction above the
+# mode's lower length bound: the measured speech can run a few percent shorter
+# than the estimate (run 20261011-103432: 305 s estimated, 298.6 s rendered).
+LOWER_BOUND_MARGIN = 0.05
 DEFAULT_MODE = "standard"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -167,6 +185,47 @@ class RuntimeFailure(Exception):
         self.extra = extra or {}
 
 
+# ElevenLabs key values that drop_key() removed from os.environ. Only redact()
+# reads this, so output written after narration is still masked.
+_dropped_keys = []
+
+
+def drop_key():
+    """Remove the ElevenLabs key from os.environ once narration is done.
+
+    Processes started later (ManimCE's LaTeX, dvisvgm, ffmpeg) inherit
+    os.environ, so the key must not stay there. The name is compared in upper
+    case, as doctor.child_env() does.
+    """
+    for name in [k for k in os.environ if k.upper() == doctor.ELEVENLABS_KEY_VAR]:
+        value = os.environ.pop(name).strip()
+        if value and value not in _dropped_keys:
+            _dropped_keys.append(value)
+
+
+def redact(text):
+    """text with the ElevenLabs key (set now or dropped) replaced by [redacted]."""
+    keys = (os.environ.get(doctor.ELEVENLABS_KEY_VAR, ""), *_dropped_keys)
+    if isinstance(text, str):
+        # The stripped key is a substring of the raw one, so masking it is
+        # enough; a whitespace-only key strips to "" and masks nothing.
+        for value in dict.fromkeys(key.strip() for key in keys):
+            if value:
+                text = text.replace(value, "[redacted]")
+    return text
+
+
+def redact_data(data):
+    """redact() applied to every string in JSON-ready data."""
+    if isinstance(data, str):
+        return redact(data)
+    if isinstance(data, dict):
+        return {redact_data(k): redact_data(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [redact_data(v) for v in data]
+    return data
+
+
 # ---------------------------------------------------------------- estimates
 
 def text_units(text):
@@ -176,9 +235,14 @@ def text_units(text):
     return {"hanzi": hanzi, "words": words}
 
 
-def estimate_speech_seconds(text):
+def zh_rate_for(engine_name):
+    """Hanzi per second the named engine speaks (see ZH_HANZI_PER_SECOND_BY_ENGINE)."""
+    return ZH_HANZI_PER_SECOND_BY_ENGINE.get(engine_name, ZH_HANZI_PER_SECOND)
+
+
+def estimate_speech_seconds(text, zh_rate=ZH_HANZI_PER_SECOND):
     units = text_units(text)
-    return units["hanzi"] / ZH_HANZI_PER_SECOND + units["words"] / EN_WORDS_PER_SECOND
+    return units["hanzi"] / zh_rate + units["words"] / EN_WORDS_PER_SECOND
 
 
 def estimate_render_seconds(total_seconds, preset):
@@ -398,7 +462,123 @@ class EdgeTtsEngine:
             raise RuntimeError("edge-tts returned no audio")
 
 
-ENGINES = {"silent": SilentEngine(), "kokoro": KokoroEngine(), "edge-tts": EdgeTtsEngine()}
+# ElevenLabs (issue #45). The price was checked on the date below; update both together.
+ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
+ELEVENLABS_MODEL = "eleven_multilingual_v2"
+ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128"
+ELEVENLABS_CREDITS_PER_CHARACTER = 1  # eleven_multilingual_v2
+ELEVENLABS_USD_PER_1K_CHARACTERS = 0.08
+ELEVENLABS_PRICE_CHECKED = "2026-10-11"
+ELEVENLABS_PRICING_URL = "https://elevenlabs.io/pricing/api"
+ELEVENLABS_COST_NOTE = (f"about ${ELEVENLABS_USD_PER_1K_CHARACTERS:.2f} per 1K characters for "
+                        f"{ELEVENLABS_MODEL} (checked {ELEVENLABS_PRICE_CHECKED}, "
+                        f"{ELEVENLABS_PRICING_URL}); cached audio is reused, so preview and "
+                        "final pay once")
+ELEVENLABS_TIMEOUT = 60  # seconds for one request
+ELEVENLABS_VOICE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+ELEVENLABS_DETAIL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+ELEVENLABS_STATUS_HINTS = {
+    400: "check the voice ID and the narration",
+    401: f"check {doctor.ELEVENLABS_KEY_VAR} and the credits of the account",
+    403: f"check {doctor.ELEVENLABS_KEY_VAR} and the plan of the account",
+    404: "check the voice ID",
+    422: "check the voice ID and the narration",
+    429: "too many requests or no credits left; wait, then run again",
+}
+# Engine object fields that look like a credential (validate() rejects them).
+CREDENTIAL_FIELD_RE = re.compile(r"key|token|secret|auth|passw|credential", re.I)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: it would send the key header to another URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def elevenlabs_detail(body):
+    """ElevenLabs' detail.status or detail.code from an error body, or None.
+    Only a short plain token is kept, with the key masked."""
+    try:
+        detail = json.loads(body.decode("utf-8")).get("detail")
+    except (ValueError, AttributeError, UnicodeDecodeError):
+        return None
+    if not isinstance(detail, dict):
+        return None
+    for field in ("status", "code"):
+        value = detail.get(field)
+        if isinstance(value, str) and ELEVENLABS_DETAIL_RE.match(value):
+            return redact(value)
+    return None
+
+
+class ElevenLabsEngine:
+    """ElevenLabs text to speech over HTTPS (paid, needs network).
+
+    Runs only when the storyboard names it with a voice ID. The key is read
+    from ELEVENLABS_API_KEY inside synthesize() at call time and sent only in
+    the xi-api-key header: it is never stored on this object, written to a
+    file, part of the cache key or passed to a child process. Every request
+    error becomes a RuntimeError built from the status code and ElevenLabs'
+    detail status or code only.
+    """
+
+    name = "elevenlabs"
+    default_voice = None
+    extension = "mp3"
+
+    def voice_for(self, lang):
+        return None
+
+    def missing_models(self, voice):
+        return []
+
+    def synthesize(self, text, lang, voice, path):
+        key = os.environ.get(doctor.ELEVENLABS_KEY_VAR, "").strip()
+        if not key:
+            raise RuntimeFailure(f"{doctor.ELEVENLABS_KEY_VAR} is not set. Set it in the "
+                                 "environment to use the elevenlabs engine.")
+        base = (os.environ.get("ELEVENLABS_API_BASE") or ELEVENLABS_API_BASE).rstrip("/")
+        url = (f"{base}/v1/text-to-speech/{urllib.parse.quote(voice, safe='')}"
+               f"?output_format={ELEVENLABS_OUTPUT_FORMAT}")
+        payload = json.dumps({"text": text, "model_id": ELEVENLABS_MODEL}).encode("utf-8")
+        status = failure = audio = None
+        try:
+            request = urllib.request.Request(
+                url, data=payload, method="POST",
+                headers={"xi-api-key": key, "Content-Type": "application/json",
+                         "Accept": "audio/mpeg"})
+            opener = urllib.request.build_opener(_NoRedirect)
+            with opener.open(request, timeout=ELEVENLABS_TIMEOUT) as response:
+                audio = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            try:
+                body = exc.read(4096)
+            except Exception:
+                body = b""
+            failure = elevenlabs_detail(body)
+        except Exception as exc:  # URLError, socket errors, timeouts, anything
+            failure = type(exc).__name__
+        finally:
+            key = request = None
+        # Raised outside the except blocks, so no original exception (with its
+        # request, headers or message) is chained to the error.
+        if status is not None:
+            hint = ELEVENLABS_STATUS_HINTS.get(
+                status, "ElevenLabs server error; try again later" if status >= 500 else None)
+            detail = "".join(f"; {part}" for part in (failure, hint) if part)
+            raise RuntimeError(f"ElevenLabs request failed: HTTP {status}{detail}")
+        if failure is not None:
+            raise RuntimeError(f"ElevenLabs request failed: {failure} (no HTTP reply); "
+                               "check the network")
+        if not audio:
+            raise RuntimeError("ElevenLabs returned no audio")
+        Path(path).write_bytes(audio)
+
+
+ENGINES = {"silent": SilentEngine(), "kokoro": KokoroEngine(), "edge-tts": EdgeTtsEngine(),
+           "elevenlabs": ElevenLabsEngine()}
 
 PUBLISHING_PRESETS = ("youtube", "short")
 
@@ -408,6 +588,13 @@ PUBLISHING_NOTICE = ("edge-tts uses an unofficial Microsoft endpoint with no ser
                      "for publishing; for a {preset} video consider Kokoro instead "
                      "(Apache-2.0, offline, mainland Mandarin accent for Chinese): "
                      "set \"engine\": \"kokoro\" in the storyboard.")
+ELEVENLABS_PUBLISHING_NOTICE = (
+    "ElevenLabs for a {preset} video: the free plan has no commercial licence and needs "
+    "\"elevenlabs.io\" in the title of each published video; paid plans include a "
+    "commercial licence.")
+ELEVENLABS_KEY_NOTICE = (f"{doctor.ELEVENLABS_KEY_VAR} is not set. preview and final need it "
+                         "for the elevenlabs engine; set it in the environment, never in the "
+                         "storyboard.")
 
 
 def is_zh_tw(lang):
@@ -471,6 +658,8 @@ def select_engine(board, offline=False):
                            "storyboard 'engine' field."])
     if name == "edge-tts" and board["preset"] in PUBLISHING_PRESETS:
         notices.append(PUBLISHING_NOTICE.format(preset=board["preset"]))
+    if name == "elevenlabs" and board["preset"] in PUBLISHING_PRESETS:
+        notices.append(ELEVENLABS_PUBLISHING_NOTICE.format(preset=board["preset"]))
     return {"name": name, "voice": voice, "reason": reason, "fallback": fallback,
             "notices": notices}
 
@@ -544,6 +733,19 @@ def validate(board):
                       "{\"name\": \"kokoro\", \"voice\": \"zf_001\"}")
     elif name is not None and name not in ENGINES:
         errors.append(f"unknown engine {name!r}; known engines: {', '.join(ENGINES)}")
+    if isinstance(engine, dict):
+        for field in engine:
+            if CREDENTIAL_FIELD_RE.search(str(field)):
+                errors.append(f"engine field {str(field)[:40]!r} looks like a credential; remove "
+                              "it. The ElevenLabs key comes only from the "
+                              f"{doctor.ELEVENLABS_KEY_VAR} environment variable.")
+    if name == "elevenlabs":
+        voice = engine.get("voice") if isinstance(engine, dict) else None
+        if not isinstance(voice, str) or not ELEVENLABS_VOICE_RE.match(voice):
+            errors.append("the elevenlabs engine needs an ElevenLabs voice ID (letters and "
+                          "digits, from your ElevenLabs voice library). Ask the user to choose "
+                          "one, then set \"engine\": {\"name\": \"elevenlabs\", "
+                          "\"voice\": \"<voice_id>\"}.")
     scenes = board.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         errors.append("scenes must be a non-empty list")
@@ -596,6 +798,28 @@ def mode_info(name):
     return {"name": name, "scenes": m["scenes"], "target_seconds": m["target_seconds"]}
 
 
+def zh_scene_chars_info(board, scenes):
+    """Characters (hanzi plus Latin words) per Chinese scene against the range in
+    force: the quick range for the `short` preset, else the range of the mode.
+    Returns (info, notice); notice is None when the average is inside the range."""
+    if board["preset"] == SHORT_PRESET:
+        label, rng = "short preset", MODES["quick"]["zh_scene_chars"]
+    else:
+        label, rng = f"{board['mode']} mode", MODES[board["mode"]]["zh_scene_chars"]
+    counts = [s["units"]["hanzi"] + s["units"]["words"] for s in scenes]
+    average = round(sum(counts) / len(counts), 1)
+    info = {"range": list(rng), "average": average, "per_scene": counts}
+    low, high = rng
+    if low <= average <= high:
+        return info, None
+    if average < low:
+        side, fix = "below", "write fuller scenes, not more scenes"
+    else:
+        side, fix = "above", "write shorter scenes, not fewer scenes"
+    return info, (f"Chinese narration: average {average:g} characters per scene is {side} "
+                  f"the {label}'s {low}-{high}; {fix}.")
+
+
 def check_scene_count(board):
     """The scene count must fit the mode. Only `plan` checks it, so a storyboard
     that the user approved still previews and renders."""
@@ -616,7 +840,8 @@ def out_dir_for(board, out):
 
 
 def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(redact_data(data), indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
 
 
 # ---------------------------------------------------------------- plan
@@ -635,9 +860,10 @@ def cmd_plan(args):
     if downloads:
         notices.append(download_notice(downloads))
     preset = PRESETS[board["preset"]]
+    zh_rate = zh_rate_for(selection["name"])
     scenes = []
     for s in board["scenes"]:
-        seconds = estimate_speech_seconds(s["narration"]) + PAD_SECONDS
+        seconds = estimate_speech_seconds(s["narration"], zh_rate) + PAD_SECONDS
         scenes.append({"id": s["id"], "narration": s["narration"],
                        "units": text_units(s["narration"]),
                        "estimated_seconds": round(seconds, 2),
@@ -646,26 +872,52 @@ def cmd_plan(args):
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
     mode = board["mode"]
     low, high = MODES[mode]["target_seconds"]
+    zh_chars, zh_notice = (zh_scene_chars_info(board, scenes) if is_zh(board["lang"])
+                           else (None, None))
+    # Chinese scenes below their character range: fuller scenes are the fix, so
+    # one notice carries the short length and "add scenes" is not advised.
+    zh_too_short = zh_chars is not None and zh_chars["average"] < zh_chars["range"][0]
     if total > high:
         notices.append(f"Estimated length {total} s is above the {mode} mode target of "
                        f"{low}-{high} s; shorten the scenes or switch to a deeper mode.")
     elif total < low:
-        notices.append(f"Estimated length {total} s is below the {mode} mode target of "
-                       f"{low}-{high} s; add scenes or switch to a quicker mode.")
+        if zh_too_short:
+            zh_notice += (f" Estimated length {total} s is below the {mode} mode target of "
+                          f"{low}-{high} s.")
+        else:
+            notices.append(f"Estimated length {total} s is below the {mode} mode target of "
+                           f"{low}-{high} s; add scenes or switch to a quicker mode.")
+    elif total < low * (1 + LOWER_BOUND_MARGIN):
+        notices.append(f"Estimated length {total} s is close to the lower end of the {mode} mode "
+                       f"target of {low}-{high} s; the real video can be a few percent shorter, "
+                       f"so add a little narration.")
     limit = preset["max_seconds"]
     if limit is not None and total > limit:
         notices.append(f"Estimated length {total} s exceeds the {limit} s limit for the "
                        f"{board['preset']} preset; shorten the storyboard.")
+    if zh_notice:
+        notices.append(zh_notice)
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
               "preset": preset_info(board["preset"]), "mode": mode_info(mode),
               "engine": engine_info(selection),
+              "speech_rate": {"zh_hanzi_per_second": zh_rate, "engine": selection["name"]},
               "network": "offline" if offline else "not checked",
               "notices": notices, "downloads": downloads,
               "cache_dir": str(doctor.cache_dir()), "scenes": scenes,
               "estimated_total_seconds": total,
               "estimated_render_seconds": estimate_render_seconds(total, preset),
               "out_dir": str(out)}
+    if zh_chars is not None:
+        result["zh_scene_chars"] = zh_chars
+    if selection["name"] == "elevenlabs":
+        characters = sum(len(s["narration"]) for s in board["scenes"])
+        result["narration_cost"] = {
+            "engine": "elevenlabs", "model": ELEVENLABS_MODEL, "characters": characters,
+            "estimated_credits": characters * ELEVENLABS_CREDITS_PER_CHARACTER,
+            "note": ELEVENLABS_COST_NOTE}
+        if not os.environ.get(doctor.ELEVENLABS_KEY_VAR, "").strip():
+            notices.append(ELEVENLABS_KEY_NOTICE)
     write_json(out / "plan.json", result)
     return result
 
@@ -691,7 +943,7 @@ def run_tool(cmd):
     try:
         proc = subprocess.run([exe, *cmd[1:]], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=timeout)
+                              timeout=timeout, env=doctor.child_env())
     except FileNotFoundError:
         raise RuntimeFailure(f"{cmd[0]} not found on PATH; run the doctor script")
     except subprocess.TimeoutExpired:
@@ -968,7 +1220,7 @@ def narrate(board, selection, work):
     except EngineFailed as exc:
         if not selection["fallback"]:
             raise RuntimeFailure(str(exc))
-        print(f"{exc}; falling back to Kokoro Chinese", file=sys.stderr)
+        print(redact(f"{exc}; falling back to Kokoro Chinese"), file=sys.stderr)
         selection = use_fallback(selection, "edge-tts failed")
     require_models(selection)
     try:
@@ -1008,7 +1260,10 @@ def prepare(args):
     work.mkdir(exist_ok=True)
     if selection["fallback"] and not edge_tts_reachable():
         selection = use_fallback(selection, "edge-tts unreachable")
-    selection, timing, narration = narrate(board, selection, work)
+    try:
+        selection, timing, narration = narrate(board, selection, work)
+    finally:
+        drop_key()  # render's child processes must not inherit the key
     return board, selection, functions, out, work, timing, narration
 
 
@@ -1186,11 +1441,11 @@ def main(argv=None):
         result, code = {"ok": False, "command": args.command, "errors": [str(exc)],
                         **exc.extra}, 2
     except Exception as exc:  # keep the one-JSON-object contract for any bug
-        traceback.print_exc(file=sys.stderr)
+        sys.stderr.write(redact(traceback.format_exc()))
         message = f"unexpected {type(exc).__name__}: {exc}"
         result, code = {"ok": False, "command": args.command, "errors": [message],
                         "error": str(exc), "type": type(exc).__name__}, 2
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(redact_data(result), indent=2, ensure_ascii=False))
     return code
 
 

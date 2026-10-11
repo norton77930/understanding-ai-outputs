@@ -90,7 +90,8 @@ class CapabilityTests(DoctorCase):
         caps = data["capabilities"]
         self.assertEqual(
             set(caps),
-            {"uv", "ffmpeg", "ffprobe", "manim", "kokoro_models", "edge_tts_network", "latex"},
+            {"uv", "ffmpeg", "ffprobe", "manim", "kokoro_models", "edge_tts_network", "latex",
+             "elevenlabs_api_key"},
         )
         for name in ("uv", "ffmpeg", "ffprobe", "manim", "kokoro_models"):
             self.assertTrue(caps[name]["available"], name)

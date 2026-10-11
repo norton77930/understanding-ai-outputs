@@ -21,7 +21,7 @@ The topics are in `topics/` (see `topics/README.md` for their review status). Al
 
 ## What one run does
 
-1. For each topic and each arm, run one agent from its own scratch folder with the same request: `Make an interactive web page that explains the following.` followed by the topic's Source text.
+1. For each topic and each arm, run one agent from its own scratch folder with the same request followed by the topic's Source text. The request is the topic's `- Request:` line when it has one (for example a named style such as blueprint), else `Make an interactive web page that explains the following.`
    - `with-skill`: `claude -p ... --plugin-dir <plugin dir>`
    - `baseline`: `claude -p ...` with no plugin
 2. Find the newest `.html` file the agent left under its scratch folder (any depth). If there are several, the report lists them all and measures the newest.

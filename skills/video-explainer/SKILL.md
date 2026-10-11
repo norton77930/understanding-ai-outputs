@@ -36,19 +36,21 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 
    Ask both in one message, each with its recommended default. Skip a question that the request answers. When the user does not answer, or the request is already approved, use `standard` and a general audience. Do not ask anything else before the storyboard.
 3. **Storyboard.** Write `out/video-explainer/<slug>/storyboard.json` (fields in `references/storyboard-and-cli.md`):
-   - Set `mode`, and use a scene count inside the mode's range. One idea per scene. A longer video gets more scenes, not longer scenes.
+   - Set `mode`, and use a scene count inside the mode's range. One idea per scene. A longer video gets more scenes, not longer scenes. For Chinese, fill each scene to the mode's characters-per-scene range (see "Narration").
    - Pick `lang` from the user's language (`en`, `zh-TW`).
    - Pick the output preset: `explainer` by default, `youtube` for a YouTube upload, `short` for Shorts, Reels or vertical video.
    - Respect an engine or voice that the user names.
+   - Use ElevenLabs only when the user asks for it. Set `"engine": {"name": "elevenlabs", "voice": "<voice_id>"}`. Ask the user for the voice ID. There is no default voice. The API key comes only from the `ELEVENLABS_API_KEY` environment variable. Never write the key in the storyboard or in any file.
    - Write the narration with the rules in "Narration" below.
 4. **Plan.** Run `python <skill folder>/scripts/make_video.py plan <storyboard>`. On exit 1, fix the storyboard from `errors` and run `plan` again.
 5. **Show the storyboard and wait.** Show the user:
    - the scene count and the full narration of each scene
    - the mode next to `estimated_total_seconds` and `estimated_render_seconds` (preview and final), for example "standard, about 3 minutes, 3b1b style; render about 4 minutes"
    - the output preset and the narration engine and voice
-   - every entry in `notices`: accent fallback, publishing risk, length outside the mode's length or over the `short` limit
+   - every entry in `notices`: accent fallback, publishing risk, length outside the mode's length or over the `short` limit, Chinese scenes outside the mode's characters per scene
    - each model in `downloads`, with its size in MB. Say which ones are only for the offline fallback (`"fallback": true`).
    - the first-run package install and its size, from the doctor's `manim` hint
+   - for ElevenLabs: `narration_cost` (`characters`, `estimated_credits` and the `note` with the price). ElevenLabs is paid. Show this before any call to ElevenLabs.
 
    Then stop and wait. The user approves or asks for changes in plain words, including another mode ("make it a deep dive", "shorter"). Apply the changes to the storyboard, run `plan` again and show the result again. Do not render until the user approves.
 6. **Install check and models.** Do these steps only after the user agrees to the stated sizes:
@@ -78,7 +80,8 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 | `deep` | 5 to 10 minutes | 15 to 30 | Intuition first, then build up. Come back to earlier objects. |
 
 - Words in the request set the mode without a question: "3b1b", "3Blue1Brown", "deep dive" → `deep`. "One minute", "quick" → `quick`. "Short", "Reels", vertical video → the `short` preset with `quick`.
-- `plan` fails when the scene count is outside the mode's range. It adds a notice when the estimated length is outside the mode's length.
+- `plan` fails when the scene count is outside the mode's range. It adds a notice when the estimated length is outside the mode's length, or less than 5% above its lower end (the real video can be a few percent shorter than the estimate). Aim for the middle of the mode's length, not its edge.
+- For Chinese narration, each mode also has a range of characters per scene: `quick` 25 to 35, `standard` and `deep` 45 to 60. The `short` preset uses the `quick` range in every mode. `plan` adds a notice when the average is outside the range. When it is too low, write fuller scenes, not more scenes. The same notice then also states a length below the mode's length.
 - The `short` preset stays at 60 seconds or less in every mode.
 - The audience sets the pace. For a general audience or a beginner, add the background first and move slowly. For an expert, skip the basics.
 
@@ -114,7 +117,7 @@ The narration is heard, not read. Apply these rules directly. Do not call anothe
 
 - English: relaxed STE. Use short sentences (20 words or fewer), active voice, one idea per sentence and one term per concept.
 - Other languages: apply the STE principles: short sentences, active voice, one idea per sentence, one term per concept.
-- Chinese: keep each scene to about 30 characters. Use Taiwan wording for zh-TW (程式, 資料, 伺服器).
+- Chinese: write about 45 to 60 characters per scene in `standard` and `deep` mode. In `quick` mode and in the `short` preset, write about 30 (25 to 35). Use Taiwan wording for zh-TW (程式, 資料, 伺服器).
 - Write numbers and symbols the way a speaker says them. Avoid parentheses, slashes, abbreviations and code in narration. Show code on screen instead.
 - Fit the total length to the mode (see "Modes"). Keep `short` videos at 60 seconds or less.
 - Each scene's narration must describe what its animation shows at the same time.
