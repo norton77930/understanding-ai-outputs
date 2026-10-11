@@ -89,14 +89,16 @@ class CapabilityTests(DoctorCase):
         self.assertTrue(data["ready"])
         caps = data["capabilities"]
         self.assertEqual(
-            set(caps), {"uv", "ffmpeg", "ffprobe", "manim", "kokoro_models", "edge_tts_network",
-                        "elevenlabs_api_key"}
+            set(caps),
+            {"uv", "ffmpeg", "ffprobe", "manim", "kokoro_models", "edge_tts_network", "latex",
+             "elevenlabs_api_key"},
         )
         for name in ("uv", "ffmpeg", "ffprobe", "manim", "kokoro_models"):
             self.assertTrue(caps[name]["available"], name)
             self.assertIsNone(caps[name]["hint"], name)
-        for cap in caps.values():
-            self.assertEqual(set(cap) - {"skipped"}, {"available", "hint"})
+        for name, cap in caps.items():
+            extra = {"path", "dvisvgm"} if name == "latex" else set()
+            self.assertEqual(set(cap) - {"skipped"}, {"available", "hint"} | extra, name)
 
     def test_missing_ffmpeg_exits_2_with_hint(self):
         self.tools(("uv", "ffprobe"))
@@ -232,6 +234,57 @@ class NetworkTests(DoctorCase):
         self.assertFalse(net["available"])
         self.assertIsInstance(net["hint"], str)
         self.assertNotIn("skipped", net)
+
+
+class LatexTests(DoctorCase):
+    """LaTeX is optional: it only decides whether scenes may use MathTex/Tex."""
+
+    def test_latex_and_dvisvgm_present_is_available(self):
+        self.tools(ALL_TOOLS + ("latex", "dvisvgm"))
+        code, data = self.run_doctor("--quick")
+        self.assertEqual(code, 0)
+        latex = data["capabilities"]["latex"]
+        self.assertTrue(latex["available"])
+        self.assertIsNone(latex["hint"])
+        self.assertTrue(latex["dvisvgm"])
+        self.assertEqual(Path(latex["path"]).stem, "latex")
+        self.assertTrue(Path(latex["path"]).is_file())
+        self.assertNotIn("skipped", latex)
+
+    def test_latex_absent_is_unavailable_with_install_hint_and_still_ready(self):
+        self.tools()
+        code, data = self.run_doctor("--quick")
+        self.assertEqual(code, 0)
+        self.assertTrue(data["ready"])
+        latex = data["capabilities"]["latex"]
+        self.assertFalse(latex["available"])
+        self.assertIsNone(latex["path"])
+        self.assertFalse(latex["dvisvgm"])
+        self.assertIn("latex", latex["hint"].lower())
+        self.assertIn("dvisvgm", latex["hint"])
+        self.assertNotRegex(latex["hint"], r"\d+\s*(MB|GB)")
+
+    def test_latex_without_dvisvgm_is_unavailable(self):
+        self.tools(ALL_TOOLS + ("latex",))
+        _, data = self.run_doctor("--quick")
+        latex = data["capabilities"]["latex"]
+        self.assertFalse(latex["available"])
+        self.assertTrue(latex["path"])
+        self.assertFalse(latex["dvisvgm"])
+        self.assertIn("dvisvgm", latex["hint"])
+
+    def test_dvisvgm_without_latex_is_unavailable(self):
+        self.tools(ALL_TOOLS + ("dvisvgm",))
+        _, data = self.run_doctor("--quick")
+        latex = data["capabilities"]["latex"]
+        self.assertFalse(latex["available"])
+        self.assertIsNone(latex["path"])
+        self.assertTrue(latex["dvisvgm"])
+
+    def test_full_probe_reports_the_same(self):
+        self.tools(ALL_TOOLS + ("latex", "dvisvgm"))
+        _, data = self.run_doctor()
+        self.assertTrue(data["capabilities"]["latex"]["available"])
 
 
 class FontTests(DoctorCase):
