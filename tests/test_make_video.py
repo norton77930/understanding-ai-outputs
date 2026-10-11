@@ -397,6 +397,7 @@ class ChineseSceneLengthTests(unittest.TestCase):
         self.assertIn("above", notices[0])
         self.assertIn("short preset", notices[0])
         code, data = self.plan(8, 30, mode="standard", preset="short")
+        self.assertEqual(code, 0, data)
         self.assertEqual(self.length_notices(data), [], data["notices"])
 
     def test_short_scenes_and_short_length_give_one_notice_without_add_scenes(self):

@@ -2,6 +2,38 @@
 
 Newest run first. The earlier run is kept below as history: it was scored by an LLM judge reading source text, which the next run does not use, so its figures are not comparable with the blind two-axis ratings.
 
+## Run 20261011-093008 (round 3 topics, hand-written SVG, issue #54)
+
+Run `20261011-093008` (2026-10-11). Model: claude CLI default. `claude` 2.1.296. Workers 4, timeout 900 s per call, A/B seed `20261011-093008`. Command: `python evals/diagram-explainer/run_eval.py` (plugin dir: branch `feat/v1.1-wave1`, PR #59). Topics: round 3 (`topics/0*.md`, approved 2026-10-11): three expect hand-written SVG, one (`04`) expects `sequenceDiagram`. Full report: `evals/diagram-explainer/runs/20261011-093008/report.md` (git-ignored, local only).
+
+### Automated metrics
+
+- with-skill: checker pass 4/4 (svg_check on 01-03, diagram_check on 04), rendered 4/4, type as expected 4/4 (SVG for 01-03, Mermaid for 04), cost $1.80, 644 s agent time.
+- baseline: checker pass 0/4 (103 issues: mostly low-contrast and small-text on the SVGs, 9 label overruns on 04), rendered 4/4, type as expected 4/4 (it also drew SVG for 01-03), cost $1.45, 453 s agent time.
+- Total: cost $3.26, agent time 1097 s, wall time 556 s.
+
+| Topic | Arm | Diagrams (from) | Type (expected) | Checker | Issues | Render | Turns | Cost | Time |
+|---|---|---|---|---|---|---|---|---|---|
+| 01-memory-hierarchy | with-skill | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 8 | $0.38 | 124 s |
+| 01-memory-hierarchy | baseline | 1 (file) | svg (ok) | FAIL (svg_check) | 22 | ok | 5 | $0.29 | 74 s |
+| 02-http-cache-timeline | with-skill | 1 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 9 | $0.34 | 124 s |
+| 02-http-cache-timeline | baseline | 1 (file) | svg (ok) | FAIL (svg_check) | 2 | ok | 4 | $0.28 | 77 s |
+| 03-btree-index | with-skill | 2 (file) | svg (ok) | PASS (svg_check) | 0 | ok | 14 | $0.75 | 252 s |
+| 03-btree-index | baseline | 1 (file) | svg (ok) | FAIL (svg_check) | 70 | ok | 10 | $0.77 | 274 s |
+| 04-password-reset | with-skill | 1 (file) | sequenceDiagram (ok) | PASS | 0 | ok | 11 | $0.34 | 145 s |
+| 04-password-reset | baseline | 1 (reply) | sequenceDiagram (ok) | FAIL | 9 | ok | 2 | $0.12 | 27 s |
+
+### Maintainer ratings (blind, two axes)
+
+Pending. Review page: `evals/diagram-explainer/runs/20261011-093008/review.html` (local, git-ignored). Same procedure and axes as the run below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
+
+| Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
+|---|---|---|---|---|---|---|---|
+| 01-memory-hierarchy | | | | | | | |
+| 02-http-cache-timeline | | | | | | | |
+| 03-btree-index | | | | | | | |
+| 04-password-reset | | | | | | | |
+
 ## Run 20261009-092505 (round 2 topics, blind two-axis rating)
 
 Run `20261009-092505` (2026-10-09). Model: claude CLI default. `claude` 2.1.295. Workers 4, timeout 900 s per call, A/B seed `20261009-092505`. Command: `python evals/diagram-explainer/run_eval.py` (plugin dir: the `feat/diagram-explainer` worktree after #46, `a53ca14`). Full report: `evals/diagram-explainer/runs/20261009-092505/report.md` (git-ignored, local only).
