@@ -97,6 +97,10 @@ PAD_SECONDS = 0.35
 # Speech rates measured in the prototype (natural explainer pace).
 EN_WORDS_PER_SECOND = 168 / 60
 ZH_HANZI_PER_SECOND = 3.05
+# Chinese rate per narration engine; an engine not listed speaks at
+# ZH_HANZI_PER_SECOND. edge-tts measured 2026-10-11 with zh-TW-HsiaoChenNeural,
+# run 20261011-090459, issue #53 (912 hanzi in 237.0 s).
+ZH_HANZI_PER_SECOND_BY_ENGINE = {"edge-tts": 3.85}
 
 # Output presets. Add a row to add a preset.
 #   max_seconds: length limit of the preset in every mode (None: the mode alone
@@ -179,9 +183,14 @@ def text_units(text):
     return {"hanzi": hanzi, "words": words}
 
 
-def estimate_speech_seconds(text):
+def zh_rate_for(engine_name):
+    """Hanzi per second the named engine speaks (see ZH_HANZI_PER_SECOND_BY_ENGINE)."""
+    return ZH_HANZI_PER_SECOND_BY_ENGINE.get(engine_name, ZH_HANZI_PER_SECOND)
+
+
+def estimate_speech_seconds(text, zh_rate=ZH_HANZI_PER_SECOND):
     units = text_units(text)
-    return units["hanzi"] / ZH_HANZI_PER_SECOND + units["words"] / EN_WORDS_PER_SECOND
+    return units["hanzi"] / zh_rate + units["words"] / EN_WORDS_PER_SECOND
 
 
 def estimate_render_seconds(total_seconds, preset):
@@ -660,9 +669,10 @@ def cmd_plan(args):
     if downloads:
         notices.append(download_notice(downloads))
     preset = PRESETS[board["preset"]]
+    zh_rate = zh_rate_for(selection["name"])
     scenes = []
     for s in board["scenes"]:
-        seconds = estimate_speech_seconds(s["narration"]) + PAD_SECONDS
+        seconds = estimate_speech_seconds(s["narration"], zh_rate) + PAD_SECONDS
         scenes.append({"id": s["id"], "narration": s["narration"],
                        "units": text_units(s["narration"]),
                        "estimated_seconds": round(seconds, 2),
@@ -696,6 +706,7 @@ def cmd_plan(args):
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
               "preset": preset_info(board["preset"]), "mode": mode_info(mode),
               "engine": engine_info(selection),
+              "speech_rate": {"zh_hanzi_per_second": zh_rate, "engine": selection["name"]},
               "network": "offline" if offline else "not checked",
               "notices": notices, "downloads": downloads,
               "cache_dir": str(doctor.cache_dir()), "scenes": scenes,

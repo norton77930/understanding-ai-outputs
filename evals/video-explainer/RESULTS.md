@@ -2,6 +2,22 @@
 
 The newest run is first; run `20261008-035608` is kept below as history.
 
+## Run `20261011-090459` (issue #53): zh-TW scene length, with-skill only
+
+Status: automated metrics only (no baseline, no rating; this run checks the #53 length rule). Model: claude CLI default (`claude` 2.1.296). Command: `python evals/video-explainer/run_eval.py --topics 01,03 --no-baseline --workers 2 --timeout 5400` (plugin dir: branch `feat/v1.1-wave1`, PR #59, with 45-60 characters per scene in `standard` and `deep`). Full report: `evals/video-explainer/runs/20261011-090459/report.md` (git-ignored, local only).
+
+**With-skill verdict: PASS** (rendered 2/2, layout check 100% (30/30), A/V diff 0.01 s, captions 30/30). Cost $4.05, wall time 6409 s (sum of both topics).
+
+| Topic | Mode | Scenes | Average characters per scene (range) | Plan estimate | Video length (target) | In range |
+|---|---|---|---|---|---|---|
+| 01-binary-search | deep | 20 | 45.6 (45-60) | 306.0 s | 244.0 s (300-600 s) | no |
+| 03-git-merge-vs-rebase | standard | 10 | 48.4 (45-60) | 163.4 s | 133.0 s (120-240 s) | yes |
+
+- **standard now lands inside its range** (the #41 run: 15 scenes, 116 s).
+- **deep is still short, because the estimate is too long, not because of the character rule.** The `plan` estimate uses `ZH_HANZI_PER_SECOND = 3.05` (measured in the prototype), but edge-tts `zh-TW-HsiaoChenNeural` speaks faster. Measured from `preview.json` `speech_seconds`: deep 912 hanzi in 237.0 s = **3.85 hanzi/s**; standard 442 hanzi + 42 Latin words in 129.5 s fits 3.85 hanzi/s plus the English word rate within 0.1 s. Both videos were about 80% of their estimate, so `plan` saw 306 s and gave no "below target" notice.
+- The skill reported the shortfall to the user itself ("實際語速比估計快，所以檢查時沒有提出警告") and offered to lengthen the video.
+- Follow-up in PR #59: a per-engine Chinese speech rate in `plan` (edge-tts 3.85, others 3.05), then a deep re-run.
+
 ## Run `20261009-132820` (issue #41): with-skill vs baseline, two rating axes
 
 Status: complete. Automated metrics filled; maintainer rated the videos blind on 2026-10-10.

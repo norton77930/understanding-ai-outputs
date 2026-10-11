@@ -69,6 +69,7 @@ On exit 1 or 2, `errors` is a list of messages.
 - `mode`: `name`, `scenes` (`[min, max]` scene count), `target_seconds` (`[min, max]` length). Show the mode with the length and render-time estimates.
 - `zh_scene_chars` (Chinese storyboards only, `lang` starting with `zh`): `range` (`[min, max]` characters per scene in force: the mode's, or the quick range for the `short` preset), `average`, `per_scene` (hanzi plus Latin words of each scene). `plan` adds one notice when `average` is outside `range`. It never fails on it.
 - `engine`: `name`, `voice`, `reason`, `fallback` (the offline engine for zh-TW, or `null`).
+- `speech_rate`: `zh_hanzi_per_second` and `engine`, the Chinese speech rate behind the estimates (3.85 for edge-tts, measured; 3.05 for every other engine). English is 2.8 words per second. The rate follows the engine in `engine`, so a zh-TW plan made offline (Kokoro) estimates longer than the same plan with edge-tts.
 - `network`: `"offline"` or `"not checked"`. `plan` never connects. Use `--offline` (or `VIDEO_EXPLAINER_OFFLINE=1`) when the doctor reported no network.
 - `notices`: messages for the user. Show every one.
 - `downloads`: missing model files, each `{"name", "url", "size_mb", "set", "fallback"}`. `fallback` is `true` for files that only the run-time fallback engine needs (Kokoro Chinese when edge-tts is unreachable for zh-TW).

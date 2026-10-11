@@ -425,6 +425,59 @@ class ChineseSceneLengthTests(unittest.TestCase):
         self.assertEqual(self.length_notices(data), [], data["notices"])
 
 
+class ChineseSpeechRateTests(unittest.TestCase):
+    """`plan` estimates Chinese speech at the rate of the engine it will use."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def plan(self, engine="default", offline=False):
+        board = load_storyboard()
+        board.update(lang="zh-TW", mode="deep", scenes=[
+            {"id": f"s{i + 1}", "narration": "測" * 45} for i in range(20)])
+        if engine == "default":
+            board.pop("engine")
+        else:
+            board["engine"] = engine
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "VIDEO_EXPLAINER_OFFLINE"}
+        if offline:
+            env["VIDEO_EXPLAINER_OFFLINE"] = "1"
+        return run([sys.executable, str(SCRIPT), "plan", str(path),
+                    "--out", str(self.tmp / "out")], env=env)
+
+    def test_default_zh_tw_engine_is_estimated_at_the_edge_tts_rate(self):
+        code, data = self.plan()
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["engine"]["name"], "edge-tts")
+        self.assertEqual(data["speech_rate"], {"zh_hanzi_per_second": 3.85, "engine": "edge-tts"})
+        # 20 scenes x (45 hanzi / 3.85 + 0.35 s pad)
+        self.assertAlmostEqual(data["estimated_total_seconds"], 240.8, delta=0.3)
+        self.assertTrue(any("below the deep mode target" in n for n in data["notices"]),
+                        data["notices"])
+
+    def test_explicit_edge_tts_uses_the_same_rate(self):
+        code, data = self.plan(engine="edge-tts")
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["speech_rate"]["zh_hanzi_per_second"], 3.85)
+
+    def test_other_engines_keep_the_prototype_rate(self):
+        # 20 scenes x (45 hanzi / 3.05 + 0.35 s pad) = 302 s
+        for engine in ("kokoro", "silent"):
+            code, data = self.plan(engine=engine)
+            self.assertEqual(code, 0, (engine, data))
+            self.assertEqual(data["speech_rate"],
+                             {"zh_hanzi_per_second": 3.05, "engine": engine})
+            self.assertAlmostEqual(data["estimated_total_seconds"], 302.1, delta=0.5, msg=engine)
+
+    def test_offline_zh_tw_falls_back_to_kokoro_and_its_rate(self):
+        code, data = self.plan(offline=True)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["speech_rate"], {"zh_hanzi_per_second": 3.05, "engine": "kokoro"})
+
+
 class StopRuleTests(unittest.TestCase):
     """Fallback and flag fields in `plan`, and the missing-tool stop (no render)."""
 

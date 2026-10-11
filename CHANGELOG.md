@@ -23,7 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   about 30 (25 to 35) in `quick` mode and the `short` preset, so zh-TW videos reach their mode's length (#53). `plan`
   reports `zh_scene_chars` (range, average, per scene) for a Chinese storyboard and adds one notice when the average is
   outside the range; when short Chinese scenes also make the video too short, that notice says to write fuller scenes,
-  not to add scenes.
+  not to add scenes. The length estimate uses the Chinese speech rate of the engine that will speak: edge-tts 3.85
+  characters per second (measured), other engines 3.05; `plan` reports it as `speech_rate`. Before, edge-tts videos
+  came out about 20% shorter than estimated, so a too-short deep video got no notice.
 - `diagram-explainer` description and plugin description: Mermaid or SVG.
 
 ## [1.0.0] - 2026-10-10
