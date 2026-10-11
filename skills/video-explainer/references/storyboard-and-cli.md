@@ -59,7 +59,7 @@ On exit 1 or 2, `errors` is a list of messages.
 ## Doctor JSON
 
 - `ready`: `true` when uv, ffmpeg and ffprobe are present. Exit 0 when ready, 2 otherwise.
-- `capabilities`: `uv`, `ffmpeg`, `ffprobe`, `manim`, `kokoro_models`, `edge_tts_network`. Each is `{"available", "hint"}`. With `--quick`, the `manim` and network probes add `"skipped": true`, and the `manim` hint states the install size. The full `manim` probe uses the same Python and ManimCE pins as `make_video.py`.
+- `capabilities`: `uv`, `ffmpeg`, `ffprobe`, `manim`, `kokoro_models`, `edge_tts_network`, `latex`. Each is `{"available", "hint"}`; `latex` also has `"path"` and `"dvisvgm"`. `latex` is optional: it never changes `ready`, `--quick` does not skip it, and `available` is true only when both `latex` and `dvisvgm` are on PATH (then scenes may use `MathTex`/`Tex`). With `--quick`, the `manim` and network probes add `"skipped": true`, and the `manim` hint states the install size. The full `manim` probe uses the same Python and ManimCE pins as `make_video.py`.
 - `font`, `font_path`, `font_hint`: the Traditional Chinese font that scenes use (Microsoft JhengHei, then PingFang TC, then Noto Sans CJK TC), or `null` with an install hint.
 - `cache_dir`: where model files live.
 

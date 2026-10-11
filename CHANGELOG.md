@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `video-explainer` skill: optional LaTeX formulas (#43). `doctor.py` reports `capabilities.latex` (`latex` and
+  `dvisvgm` on PATH; never installed by the skill). Only when it is available may scene code use `MathTex`, `Tex` and
+  `DecimalNumber`; without it the `Text`-only rule is unchanged. New Example 6 with a `Text`-only fallback.
+- `video-explainer` skill: camera moves (#44). `ctx.camera.zoom`, `pan` and `restore` zoom in on a detail or pan along
+  a long object as timed beats; titles, captions and the burned narration stay fixed in every preset, and each scene
+  ends with the camera at home. The helper moves the content, not the scene camera. New Example 7.
+
 ## [1.0.0] - 2026-10-10
 
 First public release: four skills (`ste-writing`, `diagram-explainer`, `html-explainer`, `video-explainer`), each with

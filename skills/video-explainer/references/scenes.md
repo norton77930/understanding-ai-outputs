@@ -4,8 +4,8 @@ The scenes module is a Python file with one function per storyboard scene id. `m
 
 ## Hard rules
 
-1. **ManimCE 0.21 only.** Import from `manim`. Never use ManimGL (`manimlib`) APIs. Mixing the two is a known failure. Do not use these ManimGL names: `from manimlib import *`, `ShowCreation` (use `Create`), `TexText`, `InteractiveScene`, `self.embed()`, `self.camera.frame` (no camera moves: the scene is a plain `Scene`).
-2. **`Text` only, no LaTeX.** Do not use `MathTex`, `Tex`, `Matrix`, `DecimalNumber`, `Integer` or axis numbers and labels (`include_numbers`, `get_axis_labels`). They need a LaTeX install, which v1 does not support. Write formulas as plain text, for example `ctx.text("y = x²")`.
+1. **ManimCE 0.21 only.** Import from `manim`. Never use ManimGL (`manimlib`) APIs. Mixing the two is a known failure. Do not use these ManimGL names: `from manimlib import *`, `ShowCreation` (use `Create`), `TexText`, `InteractiveScene`, `self.embed()`, `self.camera.frame` (the scene is a plain `Scene`; use `ctx.camera` for camera moves, see "Camera moves").
+2. **`Text` only, no LaTeX, unless the doctor reports LaTeX.** Do not use `MathTex`, `Tex`, `Matrix`, `DecimalNumber`, `Integer` or axis numbers and labels (`include_numbers`, `get_axis_labels`). They need a LaTeX install (`latex` and `dvisvgm`). Write formulas as plain text, for example `ctx.text("y = x²")`. Exception: when `doctor.py` reports `capabilities.latex.available` as true, `MathTex`, `Tex` and `DecimalNumber` are allowed (Example 6). When it is false, this rule stays as written.
 3. **Make all text with the helper:** `ctx.text`, `ctx.title`, `ctx.caption`, `ctx.label`. They use the font picked for the narration language (a Traditional Chinese font for zh-TW) and scale with the frame. A bare `Text(...)` can show empty boxes for Chinese.
 4. **Place with layout areas, not fixed coordinates.** Use `ctx.layout.title`, `.content`, `.caption`, `.grid()`, `.fit()` and `.keep_inside()`. Do not write `LEFT * 6` or `UP * 3.5`: the `short` preset frame is 4.5 units wide, not 14.2.
 5. **Time everything with `ctx.beats()`.** It fills exactly `ctx.duration`, the measured narration length. Do not call `ctx.scene.play()` or `ctx.scene.wait()` with your own run times.
@@ -19,7 +19,7 @@ Aim for a 3Blue1Brown-like video: the viewer sees one idea develop, not a slide 
 
 - **Continuity.** When the next scene continues the idea, `ctx.carry()` its objects and change them there with `Transform` or `.animate` (move, recolor, reshape). Keep a clean screen for a new idea. Example 4 shows this.
 - **One color per concept.** Give each concept one color for the whole video, in one module-level dict (for example `COLORS = {"value": BLUE, "focus": YELLOW}`). Do not reuse a concept's color for another concept.
-- **Counting numbers.** Show a value that changes as a number that counts up or down: a `ValueTracker` and an `always_redraw` that rebuilds a `ctx.text(...)`. Do not use `DecimalNumber` or `Integer` (they need LaTeX). Example 5 shows this.
+- **Counting numbers.** Show a value that changes as a number that counts up or down: a `ValueTracker` and an `always_redraw` that rebuilds a `ctx.text(...)`. Do not use `DecimalNumber` or `Integer` (they need LaTeX), unless the doctor reported LaTeX (Example 6). Example 5 shows the `Text` way.
 
 ## Helper API
 
@@ -244,6 +244,149 @@ def s2(ctx):
     ctx.beats([
         (ctx.swap_caption(STATE["caption"], caption), 1),
         *[(left.animate.set_value(n), 1) for n in (8, 4, 2, 1)],
+    ])
+    STATE["caption"] = caption
+```
+
+## Example 6: en, a formula and a counting number (only when doctor reports LaTeX)
+
+Use this only when `doctor.py` reports `capabilities.latex.available` as true. `MathTex` and `DecimalNumber` run `latex` and `dvisvgm`, so they fail on a machine without LaTeX. When it is false, use the fallback below. `s1` shows the formula and carries it. `s2` fills in the numbers and counts `c²` up to 25.
+
+```python
+from manim import DOWN, YELLOW, ChangeDecimalToValue, DecimalNumber, FadeIn, MathTex, VGroup, Write
+
+STATE = {}
+COLORS = {"formula": YELLOW}
+
+
+def s1(ctx):
+    title = ctx.title("Pythagoras")
+    formula = MathTex(r"a^2 + b^2 = c^2", color=COLORS["formula"])
+    ctx.layout.fit(formula, ctx.layout.content)
+    formula.move_to(ctx.layout.content.point(0.5, 0.7))  # leave room below for s2
+    caption = ctx.caption("Two short sides, one long side")
+    STATE.update(formula=formula, caption=caption)
+    ctx.carry(formula, caption)  # s2 continues this formula
+    ctx.beats([(FadeIn(title), 1), (Write(formula), 2), (FadeIn(caption), 1)])
+
+
+def s2(ctx):
+    formula = STATE["formula"]
+    result = VGroup(MathTex(r"3^2 + 4^2 = ", color=COLORS["formula"]),
+                    DecimalNumber(0, num_decimal_places=0, color=COLORS["formula"]))
+    result.arrange(buff=0.2)
+    ctx.layout.fit(result, ctx.layout.content)
+    result.next_to(formula, DOWN, buff=0.6 * ctx.layout.text_scale)
+    ctx.layout.keep_inside(result)
+    caption = ctx.caption("Three and four give twenty-five")
+    ctx.beats([
+        (FadeIn(result), 1),
+        (ChangeDecimalToValue(result[1], 25), 2),
+        (ctx.swap_caption(STATE["caption"], caption), 1),
+    ])
+    STATE["caption"] = caption
+```
+
+### Example 6 fallback: the same two scenes with `Text` only
+
+Use this when `latex.available` is false. The formula is plain text, and the number counts with a `ValueTracker` as in Example 5.
+
+```python
+from manim import DOWN, YELLOW, FadeIn, ValueTracker, always_redraw
+
+STATE = {}
+COLORS = {"formula": YELLOW}
+
+
+def s1(ctx):
+    title = ctx.title("Pythagoras")
+    formula = ctx.text("a² + b² = c²", size=64, color=COLORS["formula"])
+    ctx.layout.fit(formula, ctx.layout.content)
+    formula.move_to(ctx.layout.content.point(0.5, 0.7))  # leave room below for s2
+    caption = ctx.caption("Two short sides, one long side")
+    STATE.update(formula=formula, caption=caption)
+    ctx.carry(formula, caption)
+    ctx.beats([(FadeIn(title), 1), (FadeIn(formula), 2), (FadeIn(caption), 1)])
+
+
+def s2(ctx):
+    formula = STATE["formula"]
+    total = ValueTracker(0)
+    anchor = formula.get_bottom() + DOWN * 1.0 * ctx.layout.text_scale
+    result = always_redraw(lambda: ctx.text(f"3² + 4² = {round(total.get_value())}", size=64,
+                                            color=COLORS["formula"]).move_to(anchor))
+    caption = ctx.caption("Three and four give twenty-five")
+    ctx.beats([
+        (FadeIn(result), 1),
+        (total.animate.set_value(25), 2),
+        (ctx.swap_caption(STATE["caption"], caption), 1),
+    ])
+    STATE["caption"] = caption
+```
+
+## Camera moves
+
+A camera move zooms in on a detail or pans along a long object, then comes back. It is a 3Blue1Brown hallmark. Use it only when a detail is too small to read at full view, or an object is too long to show at a readable size. Use at most two moves per scene, then `ctx.camera.restore()`.
+
+The helper moves the content, not the scene camera (the scene stays a plain `Scene`). Titles, captions, the burned narration and anything you pass to `ctx.camera.fix()` stay where they are and stay readable. Each move is an animation: put it in `ctx.beats()` like any other, so the helper timing stays exact.
+
+| Call | Returns |
+| --- | --- |
+| `ctx.camera.zoom(target, scale=None, buff=None)` | Animation: fit `target` (a mobject, or an `Area` in scene-start coordinates) into the content area, centered. `scale` sets the zoom factor instead of fitting. |
+| `ctx.camera.pan(target)` | Animation: move `target` to the center of the content area at the current zoom. |
+| `ctx.camera.restore()` | Animation: bring all content back to where it was at the scene start. |
+| `ctx.camera.fix(mob)` | Keeps `mob` fixed on screen during camera moves (a HUD). Returns `mob`. `ctx.title` and `ctx.caption` are fixed already. |
+| `ctx.camera.is_home` | `True` when the camera is at its scene-start state. |
+
+Rules:
+
+- **One move per beat.** Give each move its own beat. Do not animate the moving content in the same beat. Fading in a fixed object (a caption or a HUD) in the same beat is fine.
+- **A move takes what is on screen when it starts.** Show the objects before the move. An object that appears after a zoom is drawn at its own size and place, not zoomed. Show labels before the move or after the restore.
+- **End the scene at home.** End with `ctx.camera.restore()`. Each scene's camera starts at home, and a carried object keeps the size and place it has at the scene end.
+- **Neighbors may leave the frame.** Zoomed content can pass beyond the frame edge or under the title and caption. Zoom on a part of a row or a line, so the neighbors stay in the content band.
+- `always_redraw` objects redraw at their own coordinates and do not follow a move. Do not zoom on a counting number.
+
+## Example 7: en, zoom on a detail and pan along a row (camera moves)
+
+`s1` zooms in to read one small cell and comes back. `s2` zooms in on the start of the row, pans to the end and comes back. The title and the captions stay fixed and readable. In a portrait frame the row is narrow, so the zoom matters more.
+
+```python
+from manim import BLUE, RIGHT, YELLOW, FadeIn, Rectangle, VGroup
+
+STATE = {}
+COLORS = {"cell": BLUE, "focus": YELLOW}
+VALUES = [4, 9, 15, 16, 23, 42, 8, 11, 30, 7, 19, 27]
+
+
+def cell(ctx, value, color):
+    box = Rectangle(width=1.0, height=1.0, color=color, fill_opacity=0.3)
+    return VGroup(box, ctx.text(str(value), size=24).move_to(box))
+
+
+def s1(ctx):
+    title = ctx.title("A long row of cells")
+    cells = VGroup(*[cell(ctx, v, COLORS["focus"] if i == 4 else COLORS["cell"])
+                     for i, v in enumerate(VALUES)]).arrange(RIGHT, buff=0.1)
+    ctx.layout.fit(cells, ctx.layout.content)
+    caption = ctx.caption("Zoom in to read one cell")
+    STATE.update(cells=cells, caption=caption)
+    ctx.carry(cells, caption)
+    ctx.beats([
+        ([FadeIn(title), FadeIn(cells), FadeIn(caption)], 1),
+        (ctx.camera.zoom(cells[4]), 1),  # move 1: the detail fills the content area
+        (None, 1),
+        (ctx.camera.restore(), 1),  # back home before the scene ends
+    ])
+
+
+def s2(ctx):
+    cells = STATE["cells"]
+    caption = ctx.caption("Pan from start to end")
+    ctx.beats([
+        (ctx.swap_caption(STATE["caption"], caption), 1),
+        (ctx.camera.zoom(cells[:3]), 1),  # move 1: the start of the row
+        (ctx.camera.pan(cells[-3:]), 2),  # move 2: slide to the end at the same zoom
+        (ctx.camera.restore(), 1),
     ])
     STATE["caption"] = caption
 ```

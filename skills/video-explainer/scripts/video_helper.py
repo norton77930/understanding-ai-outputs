@@ -17,6 +17,8 @@ Rules the helper keeps for you:
   (a cross-fade at one position ghosts).
 - fallback_scene() draws a title and bullets from the narration for a scene
   the storyboard marks "fallback": true (make_video.py calls it).
+- ctx.camera zooms and pans the content (opt-in, see Camera). Titles,
+  captions and the burned narration stay fixed; the helper timing stays exact.
 - Each scene starts on a clean screen: clear_previous() fades out what the
   previous scene left (make_video.py calls it). To keep objects for the next
   scene, call ctx.carry(obj, ...) in the scene that made them (ctx.carry()
@@ -29,8 +31,8 @@ import textwrap
 from dataclasses import dataclass
 
 import numpy as np
-from manim import (DOWN, LEFT, RIGHT, WHITE, FadeIn, FadeOut, LaggedStart, Paragraph,
-                   Succession, Text, VGroup)
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, WHITE, Animation, FadeIn, FadeOut, Group,
+                   LaggedStart, Mobject, Paragraph, Succession, Text, VGroup)
 
 import doctor  # stdlib only; owns the Traditional Chinese font order
 
@@ -176,6 +178,7 @@ class SceneContext:
         self.start, self.duration, self.speech_seconds = start, duration, speech_seconds
         self.layout, self.font, self.fps = layout, font, fps
         self._carried, self._carry_all = [], False
+        self._camera = None
 
     def carry(self, *mobjects):
         """Keep mobjects on screen into the next scene instead of fading them
@@ -192,18 +195,27 @@ class SceneContext:
             return list(self.scene.mobjects)
         return list(self._carried)
 
+    @property
+    def camera(self):
+        """Camera moves for this scene (see Camera). Each scene starts at home."""
+        if self._camera is None:
+            self._camera = Camera(self)
+        return self._camera
+
     def text(self, s, size=TEXT_SIZE, color=WHITE, **kwargs):
         """Text in the scene font, sized relative to the frame."""
         kwargs.setdefault("font", self.font)
         return Text(s, font_size=size * self.layout.text_scale, color=color, **kwargs)
 
     def title(self, s, color=WHITE):
-        """Title text fitted into the title area (not yet added)."""
-        return self.layout.fit(self.text(s, TITLE_SIZE, color), self.layout.title)
+        """Title text fitted into the title area (not yet added). Fixed on
+        screen during camera moves."""
+        return fix(self.layout.fit(self.text(s, TITLE_SIZE, color), self.layout.title))
 
     def caption(self, s, color=WHITE):
-        """Caption text fitted into the caption area (not yet added)."""
-        return self.layout.fit(self.text(s, CAPTION_SIZE, color), self.layout.caption)
+        """Caption text fitted into the caption area (not yet added). Fixed on
+        screen during camera moves."""
+        return fix(self.layout.fit(self.text(s, CAPTION_SIZE, color), self.layout.caption))
 
     def narration_caption(self, lines, color=WHITE):
         """Burned-in narration caption: lines of one scene's narration, in the
@@ -212,7 +224,7 @@ class SceneContext:
         paragraph = Paragraph(*lines, alignment="center", font=self.font, color=color,
                               font_size=NARRATION_SIZE * self.layout.text_scale,
                               line_spacing=0.6)
-        return self.layout.fit(paragraph, self.layout.narration)
+        return fix(self.layout.fit(paragraph, self.layout.narration))
 
     def label(self, s, target, direction=DOWN, buff=0.2, size=TEXT_SIZE * 0.8, color=WHITE):
         """Label next to target, kept inside the safe area (not yet added)."""
@@ -280,6 +292,169 @@ def clear_previous(ctx, keep):
         scene.remove(*gone)
         return
     scene.play(*[FadeOut(m) for m in gone], run_time=frames / ctx.fps)
+
+
+# ---------------------------------------------------------------- camera
+#
+# A camera move is an animation of the content, not of the ManimCE camera:
+# make_video.py renders a plain Scene, and its title, captions and burned
+# narration are ordinary mobjects. A move maps every non-fixed object on
+# screen through p -> k * p + t, frame by frame, the way a moving camera frame
+# would show it (stroke widths stay). Fixed objects are not touched, so they
+# keep their exact place in the safe area at any aspect ratio. The camera
+# state (k, t) is relative to the scene start, and each scene starts at home.
+
+FIXED_ATTR = "_video_helper_fixed"
+HOME = (1.0, np.zeros(3))
+
+
+def fix(mobject):
+    """Mark mobject as fixed on screen: camera moves leave it in place. Returns it."""
+    setattr(mobject, FIXED_ATTR, True)
+    return mobject
+
+
+def is_fixed(mobject):
+    return getattr(mobject, FIXED_ATTR, False)
+
+
+def fit_view(center, width, height, area, buff=0.0, scale=None):
+    """Map (factor, shift) that centers a box (center, width, height) in area,
+    scaled to fit area minus buff on each side, or scaled by scale when given.
+    A point p goes to factor * p + shift."""
+    if scale is None:
+        scale = min((area.width - 2 * buff) / max(width, 1e-6),
+                    (area.height - 2 * buff) / max(height, 1e-6))
+    if scale <= 0:
+        raise ValueError("camera zoom factor must be positive")
+    return scale, area.center - scale * np.asarray(center, dtype=float)
+
+
+def compose(state, factor, shift):
+    """Camera state after a further map p -> factor * p + shift."""
+    k, t = state
+    return k * factor, factor * np.asarray(t, dtype=float) + shift
+
+
+def between(start, end, alpha):
+    """Camera state at alpha (0 to 1) from start to end. Like a moving camera
+    frame, the visible size and the visible center change linearly."""
+    (k0, t0), (k1, t1) = start, end
+    k = 1.0 / ((1 - alpha) / k0 + alpha / k1)
+    center = (1 - alpha) * (-np.asarray(t0) / k0) + alpha * (-np.asarray(t1) / k1)
+    return k, -k * center
+
+
+def movers_and_fixed(mobjects):
+    """Split on-screen objects into the ones a camera move moves and the fixed
+    ones. A group that holds a fixed part is split into its parts."""
+    movers, fixed = [], []
+    for mob in mobjects:
+        if is_fixed(mob):
+            fixed.append(mob)
+        elif any(is_fixed(part) for part in mob.get_family()):
+            inner_movers, inner_fixed = movers_and_fixed(mob.submobjects)
+            movers += inner_movers
+            fixed += inner_fixed
+        else:
+            movers.append(mob)
+    return movers, fixed
+
+
+def _apply(mobjects, factor, shift):
+    # Stroke widths stay as drawn: a 10x zoom in the 9:16 frame would turn
+    # outlines into thick bars.
+    for mob in mobjects:
+        mob.scale(factor, about_point=ORIGIN).shift(shift)
+
+
+class CameraMove(Animation):
+    """Moves the non-fixed objects on screen from the camera state at its start
+    to end_state(start state). Built by Camera; play it through ctx.beats()."""
+
+    def __init__(self, camera, end_state, **kwargs):
+        self.camera, self.end_state = camera, end_state
+        # introducer: the scene must not add the (empty) group; _setup_scene
+        # fills it with what is on screen when the move starts.
+        super().__init__(Group(), introducer=True, suspend_mobject_updating=False, **kwargs)
+
+    def _setup_scene(self, scene):
+        movers, fixed = movers_and_fixed(scene.mobjects)
+        self.movers = movers
+        self.mobject = Group(*movers)  # marks them as moving for the renderer
+        # Fixed objects draw over zoomed content.
+        scene.bring_to_front(*[m for m in fixed if m in scene.mobjects])
+
+    def begin(self):
+        self.start = self.camera.state
+        self.end = self.end_state(self.start)
+        self.applied = self.start
+
+    def interpolate_mobject(self, alpha):
+        k, t = between(self.start, self.end, self.rate_func(alpha))
+        k0, t0 = self.applied
+        factor = k / k0
+        _apply(self.movers, factor, t - factor * t0)
+        self.applied = self.camera.state = (k, t)
+
+    def update_mobjects(self, dt):
+        pass  # the scene runs the updaters; running them here would run them twice
+
+    def finish(self):
+        super().finish()
+        self.camera.state = self.end
+
+
+class Camera:
+    """Camera moves of one scene: ctx.camera. Each method returns an animation
+    for ctx.beats(); the move is computed when it starts, from what is on
+    screen then. Titles, captions, the burned narration and objects passed to
+    fix() stay in place."""
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.state = HOME
+
+    @property
+    def is_home(self):
+        k, t = self.state
+        return abs(k - 1.0) < 1e-9 and bool(np.allclose(t, 0.0, atol=1e-9))
+
+    def fix(self, mobject):
+        """Keep mobject fixed on screen during camera moves. Returns it."""
+        return fix(mobject)
+
+    def _box(self, target):
+        """Center, width and height of target as shown now."""
+        if isinstance(target, Mobject):
+            return target.get_center(), target.width, target.height
+        if isinstance(target, Area):  # scene-start coordinates
+            k, t = self.state
+            return k * target.center + t, k * target.width, k * target.height
+        raise TypeError("camera target must be a mobject or an Area")
+
+    def zoom(self, target, scale=None, buff=None):
+        """Animation: fit target into the content area, centered. scale sets
+        the zoom factor (relative to the scene start) instead of fitting."""
+        buff = 0.25 * self.ctx.layout.text_scale if buff is None else buff
+
+        def end(state):
+            center, width, height = self._box(target)
+            factor = None if scale is None else scale / state[0]
+            return compose(state, *fit_view(center, width, height, self.ctx.layout.content,
+                                            buff, factor))
+        return CameraMove(self, end)
+
+    def pan(self, target):
+        """Animation: move target to the center of the content area, same zoom."""
+        def end(state):
+            center, _, _ = self._box(target)
+            return compose(state, 1.0, self.ctx.layout.content.center - center)
+        return CameraMove(self, end)
+
+    def restore(self):
+        """Animation: bring the content back to where it was at the scene start."""
+        return CameraMove(self, lambda state: HOME)
 
 
 # ---------------------------------------------------------------- fallback scene

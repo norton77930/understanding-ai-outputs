@@ -9,10 +9,16 @@ ffprobe) is present, 2 otherwise. Standard library only.
 
 Output keys:
     ready         true when the minimum set is present
-    capabilities  uv, ffmpeg, ffprobe, manim, kokoro_models, edge_tts_network.
-                  Each is {"available": bool, "hint": str|null}; the hint is an
-                  install or fix hint when the capability is missing. A probe
-                  that was not run (--quick) adds "skipped": true.
+    capabilities  uv, ffmpeg, ffprobe, manim, kokoro_models, edge_tts_network,
+                  latex. Each is {"available": bool, "hint": str|null}; the
+                  hint is an install or fix hint when the capability is
+                  missing. A probe that was not run (--quick) adds
+                  "skipped": true.
+                  latex is optional (it never changes `ready`) and also has
+                  "path" (the latex executable or null) and "dvisvgm" (bool).
+                  It is available only when both latex and dvisvgm are on PATH:
+                  then scene code may use MathTex/Tex. It is a PATH lookup, so
+                  --quick does not skip it. The doctor never installs LaTeX.
     font          First available Traditional Chinese font, in the order
                   Microsoft JhengHei, PingFang TC, Noto Sans CJK TC; else null
     font_path     Path of the matching font file, or null
@@ -28,8 +34,8 @@ Flags:
                   it only after the user agrees to that install.
 
 Environment overrides (used by the tests; also handy for debugging):
-    VIDEO_EXPLAINER_DOCTOR_PATH   PATH used to look up uv, ffmpeg and ffprobe
-                                  instead of the real PATH. Empty means nothing
+    VIDEO_EXPLAINER_DOCTOR_PATH   PATH used to look up uv, ffmpeg, ffprobe, latex
+                                  and dvisvgm instead of the real PATH. Empty means nothing
                                   is found.
     VIDEO_EXPLAINER_FONT_DIRS     os.pathsep-separated directories searched for
                                   font files instead of the OS defaults (the
@@ -99,8 +105,26 @@ TOOL_HINTS = {
 }
 
 
+LATEX_HINT = ("Optional: LaTeX is only needed for formulas (MathTex/Tex). Scenes work "
+              "without it, using plain Text. If the user wants formulas, they can install "
+              "a TeX distribution that provides both `latex` and `dvisvgm` (for example "
+              "MiKTeX or TeX Live) and put them on PATH. This skill never installs it.")
+
+
 def probe_tool(name):
     return report(find_tool(name), TOOL_HINTS[name])
+
+
+def probe_latex():
+    """Optional LaTeX: ManimCE's MathTex/Tex runs `latex`, then `dvisvgm`.
+    Only looks them up; installs nothing."""
+    latex, dvisvgm = find_tool("latex"), find_tool("dvisvgm")
+    cap = report(latex and dvisvgm, LATEX_HINT if not (latex and dvisvgm) else None)
+    if latex and not dvisvgm:
+        cap["hint"] = "latex was found but dvisvgm was not. " + LATEX_HINT
+    cap["path"] = latex
+    cap["dvisvgm"] = bool(dvisvgm)
+    return cap
 
 
 MAKE_VIDEO = Path(__file__).resolve().parent / "make_video.py"
@@ -285,6 +309,7 @@ def build_report(quick):
     caps["manim"] = probe_manim(find_tool("uv"), quick)
     caps["kokoro_models"] = probe_kokoro(cache)
     caps["edge_tts_network"] = probe_network(quick)
+    caps["latex"] = probe_latex()
     font, font_path = select_font()
     return {
         "ready": all(caps[n]["available"] for n in ("uv", "ffmpeg", "ffprobe")),

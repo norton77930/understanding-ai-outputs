@@ -874,6 +874,55 @@ class StyleExampleEndToEndTests(unittest.TestCase):
         self.assert_previewed(5)
 
 
+def latex_available():
+    """Whether doctor.py reports LaTeX (latex and dvisvgm) on this machine's PATH."""
+    doctor = ROOT / "skills" / "video-explainer" / "scripts" / "doctor.py"
+    proc = subprocess.run([sys.executable, str(doctor), "--quick"], capture_output=True,
+                          env=dict(os.environ, PYTHONUTF8="1"))
+    try:
+        return json.loads(proc.stdout.decode("utf-8"))["capabilities"]["latex"]["available"]
+    except (ValueError, KeyError):
+        return False
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class FormulaExampleEndToEndTests(unittest.TestCase):
+    """Example 6 in references/scenes.md previews with the silent engine. The
+    MathTex version needs LaTeX; its Text-only fallback runs everywhere."""
+
+    NARRATION = ["Two short sides and one long side make a triangle.",
+                 "Three squared plus four squared is twenty-five."]
+
+    def preview(self, scenes_source):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        scenes = tmp / "scenes.py"
+        scenes.write_text(scenes_source, encoding="utf-8")
+        board = {"slug": "example-6", "lang": "en", "preset": "explainer", "engine": "silent",
+                 "scenes": [{"id": f"s{i + 1}", "narration": n}
+                            for i, n in enumerate(self.NARRATION)]}
+        path = tmp / "storyboard.json"
+        path.write_text(json.dumps(board), encoding="utf-8")
+        code, data = run(["uv", "run", "--script", str(SCRIPT), "preview", str(path),
+                          str(scenes), "--out", str(tmp / "out")])
+        self.assertEqual(code, 0, data)
+        self.assertEqual([s["status"] for s in data["scenes"]], ["ok", "ok"], data)
+        for scene in data["scenes"]:
+            self.assertTrue(Path(scene["frame"]).is_file(), scene)
+
+    def test_formula_example_renders_when_latex_is_present(self):
+        if not latex_available():
+            self.skipTest("doctor.py reports no LaTeX (latex and dvisvgm) on this machine")
+        self.preview(reference_example(6))
+
+    def test_text_only_fallback_renders_without_latex(self):
+        text = SCENES_REFERENCE.read_text(encoding="utf-8")
+        match = re.search(r"^### Example 6 fallback.*?^```python\n(.*?)^```", text, re.M | re.S)
+        self.assertIsNotNone(match, "scenes.md has no Example 6 fallback block")
+        self.preview(match.group(1))
+
+
 SCENES_CARRY = '''
 from manim import WHITE, FadeIn, Square
 
@@ -1062,6 +1111,95 @@ class NarrationEngineEndToEndTests(unittest.TestCase):
         found = [p for root in roots if root.is_dir()
                  for pattern in ("kokoro*.onnx", "voices*.bin") for p in root.rglob(pattern)]
         self.assertEqual(found, [])
+
+
+SCENES_CAMERA = FIXTURES / "scenes_camera.py"
+
+
+def region_difference(video, t1, t2, x0, y0, x1, y1):
+    """Mean absolute gray difference (0-255) of a frame region at two times."""
+    a, b = (frame_pixels(video, t, x0, y0, x1, y1) for t in (t1, t2))
+    return sum(abs(p - q) for p, q in zip(a, b)) / len(a)
+
+
+@unittest.skipUnless(os.environ.get("VIDEO_E2E") == "1",
+                     "set VIDEO_E2E=1 to render with ManimCE through uv")
+class CameraEndToEndTests(unittest.TestCase):
+    """Camera moves (ctx.camera) in all three presets, silent engine.
+
+    The fixture scenes check the helper positions frame by frame and fail when
+    a title or caption moves. Example 7 of references/scenes.md is checked on
+    the preview video: the title and caption bands stay the same while the
+    content zooms, and the content is back home at the scene end.
+    """
+
+    PRESETS = ("explainer", "youtube", "short")
+    # Frame-fraction bands (y0, y1): fixed elements, and the content area.
+    BANDS = {
+        "16:9": {"fixed": ((0.0, 0.20), (0.80, 1.0)), "content": (0.25, 0.75)},
+        "9:16": {"fixed": ((0.0, 0.15), (0.48, 1.0)), "content": (0.20, 0.44)},
+    }
+    EXAMPLE = ["Here is a long row of cells. Zoom in to read one of them.",
+               "Now pan along the row, from the first cells to the last ones."]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        base = ["uv", "run", "--script", str(SCRIPT), "preview"]
+        example = cls.tmp / "example6.py"
+        example.write_text(reference_example(7), encoding="utf-8")
+        cls.runs = {}
+        for preset in cls.PRESETS:
+            board = load_storyboard()
+            board["preset"] = preset
+            fixture = cls.tmp / f"fixture-{preset}.json"
+            fixture.write_text(json.dumps(board), encoding="utf-8")
+            cls.runs["fixture", preset] = run(base + [
+                str(fixture), str(SCENES_CAMERA), "--out", str(cls.tmp / f"fixture-{preset}")])
+            board = {"slug": "example-6", "lang": "en", "preset": preset, "engine": "silent",
+                     "scenes": [{"id": f"s{i + 1}", "narration": n}
+                                for i, n in enumerate(cls.EXAMPLE)]}
+            path = cls.tmp / f"example-{preset}.json"
+            path.write_text(json.dumps(board), encoding="utf-8")
+            cls.runs["example", preset] = run(base + [
+                str(path), str(example), "--out", str(cls.tmp / f"example-{preset}")])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def preview(self, key, preset):
+        code, data = self.runs[key, preset]
+        self.assertEqual(code, 0, (preset, data))
+        self.assertTrue(all(s["status"] == "ok" for s in data["scenes"]), (preset, data))
+        return data
+
+    def test_camera_keeps_fixed_elements_and_returns_home(self):
+        for preset in self.PRESETS:
+            with self.subTest(preset=preset):
+                self.preview("fixture", preset)  # the scenes raise on a broken check
+
+    def test_camera_example_zooms_content_not_title_or_caption(self):
+        for preset in self.PRESETS:
+            with self.subTest(preset=preset):
+                data = self.preview("example", preset)
+                video = data["preview_video"]
+                bands = self.BANDS["9:16" if preset == "short" else "16:9"]
+                s1 = data["scenes"][0]
+                # s1 beats: intro, zoom, zoomed hold, restore (equal weights).
+                beat = (s1["duration"] - 0.4) / 4
+                moving, zoomed = s1["start"] + 1.5 * beat, s1["start"] + 2.5 * beat
+                home = s1["end"] - 0.2
+                for y0, y1 in bands["fixed"]:
+                    for t in (moving, zoomed):
+                        self.assertLess(region_difference(video, t, home, 0, y0, 1, y1), 1.5,
+                                        (preset, y0, y1, t))
+                y0, y1 = bands["content"]
+                self.assertGreater(region_difference(video, zoomed, home, 0, y0, 1, y1), 5,
+                                   preset)
+                start = s1["start"] + beat - 0.05  # end of the intro, camera still home
+                self.assertLess(region_difference(video, start, home, 0, y0, 1, y1), 1.5,
+                                preset)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 
 ## Workflow
 
-1. **Doctor.** Run `python <skill folder>/scripts/doctor.py --quick`. It installs nothing. On exit 2, stop. Show the user the missing capabilities and their `hint` lines. Do not continue with a half-working setup. For Chinese narration with `font` null, show `font_hint` and stop. The `manim` hint states the package install size. You show it to the user in step 5.
+1. **Doctor.** Run `python <skill folder>/scripts/doctor.py --quick`. It installs nothing. On exit 2, stop. Show the user the missing capabilities and their `hint` lines. Ignore `latex` here: it is optional and never blocks the job. Read `capabilities.latex.available` for step 7. Do not show its `hint` and do not ask the user to install LaTeX, unless they ask for formulas (see "Formulas" below). Do not continue with a half-working setup. For Chinese narration with `font` null, show `font_hint` and stop. The `manim` hint states the package install size. You show it to the user in step 5.
 2. **Mode and audience.** Pick the mode and the audience from "Modes" below. Ask at most two short questions, and only for what the request does not say:
    - Depth: "Quick (about 1 minute), standard (2 to 4 minutes, recommended) or deep dive (5 to 10 minutes)?"
    - Audience: "General audience (recommended), beginner, some background, or expert?"
@@ -54,7 +54,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
 6. **Install check and models.** Do these steps only after the user agrees to the stated sizes:
    - Run `python <skill folder>/scripts/doctor.py` without `--quick`. This installs ManimCE into the uv cache and checks the network. If `manim` is not available, show its `hint` and stop. If `edge_tts_network` is not available for zh-TW, run `plan` again with `--offline` and show the new notices.
    - Download the models: `python <skill folder>/scripts/make_video.py fetch-models <set> ...` with the sets from the `plan` notice (`kokoro-en`, `kokoro-zh`). Models go to the user cache folder, never the project.
-7. **Scenes.** Write `out/video-explainer/<slug>/scenes.py` with one function per scene id. Use the helper as `references/scenes.md` shows: ManimCE only, `Text` only, layout areas only, timing through `ctx.beats()`. Follow "Style" below.
+7. **Scenes.** Write `out/video-explainer/<slug>/scenes.py` with one function per scene id. Use the helper as `references/scenes.md` shows: ManimCE only, `Text` only (unless the doctor reported LaTeX, see "Formulas"), layout areas only, timing through `ctx.beats()`. Follow "Style" below.
 8. **Preview.** Run `uv run <skill folder>/scripts/make_video.py preview <storyboard> <scenes.py>`.
    - Exit 2: an environment problem. Show `errors` and any `missing_tools` hints, then stop.
    - Exit 1 with a scene `status` of `failed`: fix that function from its `error` and run `preview` again. After three failed fixes of one scene, set `"fallback": true` on it in the storyboard. The helper then draws a title and bullets from its narration. Add `"title"` to set the heading.
@@ -88,7 +88,25 @@ Every mode uses a 3Blue1Brown-like style: the viewer sees one idea develop, not 
 
 - When the next scene continues the idea, carry its objects with `ctx.carry()` and change them with `Transform` or `.animate`. Start a new idea on a clean screen. The helper fades out everything that is not carried.
 - Give each concept one color for the whole video.
-- Show a changing value as a number that counts, with `Text` and an updater. No LaTeX.
+- Show a changing value as a number that counts, with `Text` and an updater. Use `DecimalNumber` only when the doctor reported LaTeX.
+
+## Formulas
+
+Scenes use `Text` only, with no LaTeX. Write a formula as plain text, for example `ctx.text("y = x²")`.
+
+Exception: when the doctor reports `capabilities.latex.available` as true, scene code MAY use `MathTex` and `Tex` for formulas, and `DecimalNumber` for counting numbers. `references/scenes.md` Example 6 shows this and gives the `Text` fallback.
+
+- When `latex.available` is false, the `Text`-only rule stays exactly as it is. Do not use `MathTex`, `Tex`, `Matrix`, `DecimalNumber`, `Integer` or axis numbers.
+- Do not ask the user to install LaTeX. Only when the user asks for typeset formulas and `latex.available` is false, tell them what the `latex` hint says and let them decide. This skill never installs or downloads LaTeX.
+- `MathTex` and `Tex` do not use the narration font. Keep Chinese words in `ctx.text`, and use `MathTex` for the math only.
+
+## Camera moves
+
+A camera move zooms in on a detail or pans along a long object. Use `ctx.camera` (API and Example 7 in `references/scenes.md`).
+
+- Use a move only when a detail is too small to read at full view, or an object is too long to show at a readable size. Do not move the camera for decoration.
+- Use at most two moves per scene. Give each move its own beat in `ctx.beats()`. End the scene with `ctx.camera.restore()`.
+- Captions and titles are never zoomed. `ctx.title`, `ctx.caption` and the burned narration stay fixed on screen. Never put text that the viewer must read in the content that you zoom away from.
 
 ## Narration
 
