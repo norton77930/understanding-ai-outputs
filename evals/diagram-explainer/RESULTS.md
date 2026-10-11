@@ -25,14 +25,16 @@ Run `20261011-093008` (2026-10-11). Model: claude CLI default. `claude` 2.1.296.
 
 ### Maintainer ratings (blind, two axes)
 
-Pending. Review page: `evals/diagram-explainer/runs/20261011-093008/review.html` (local, git-ignored). Same procedure and axes as the run below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
+Rated by the maintainer on 2026-10-11. Review page: `evals/diagram-explainer/runs/20261011-093008/review.html` (local, git-ignored). Same procedure and axes as the run below: rate each image 1-5 on understanding (理解) and presentation (呈現), pick the better image (A / B / tie), and only then fill the last column from `report.json` (`ab_key`).
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
-| 01-memory-hierarchy | | | | | | | |
-| 02-http-cache-timeline | | | | | | | |
-| 03-btree-index | | | | | | | |
-| 04-password-reset | | | | | | | |
+| 01-memory-hierarchy | 5 | 4 | 5 | 5 | B | | B |
+| 02-http-cache-timeline | 5 | 5 | 5 | 5 | A | | A |
+| 03-btree-index | 5 | 5 | 5 | 5 | B | | B |
+| 04-password-reset | 5 | 5 | 5 | 5 | tie | About the same; A a little easier to read (差不多，A 好閱讀一點) | A |
+
+Result: with-skill better on 3 topics (01-03, the hand-written SVG topics), tie on 1 (04, Mermaid, leaning to with-skill), worse on 0. Understanding is 5 in every image. Presentation: with-skill 5.0, baseline 4.75. Compared with round 1, where the baseline won on presentation (baseline 4, 5, 5, 5 vs with-skill Mermaid 4, 4, 3, 4), the hand-written SVG path closes that gap. As in round 4 (#42), both arms score near the top of the scale, so the "better" picks carry more of the signal than the scores.
 
 ## Run 20261009-092505 (round 2 topics, blind two-axis rating)
 
