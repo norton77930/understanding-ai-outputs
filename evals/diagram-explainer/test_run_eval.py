@@ -1,5 +1,6 @@
 """Unit tests for the pure parts of run_eval.py (topic parsing, Mermaid
-extraction, diagram type, A/B order, SVG size, aggregation, report and review page).
+extraction, diagram type, hand-written SVG detection and checking, A/B order, SVG size,
+aggregation, report and review page).
 
 Run: python -m unittest discover -s evals/diagram-explainer -p "test_run_eval.py"
 """
@@ -40,6 +41,13 @@ def check(passed=True, kind="flowchart", nodes=5, over=0, issues=0, **counts):
     labels = [{"text": "x", "over": i < over} for i in range(max(over, 3))]
     return {"type": kind, "counts": counts, "labels": labels,
             "issues": [{"rule": "label-too-long"}] * issues, "pass": passed}
+
+
+def svg_check_json(passed=True, issues=(), warnings=(), exit_code=None):
+    return {"viewbox": [0, 0, 800, 400], "counts": {"texts": 5, "bytes": 900},
+            "issues": [{"rule": r, "line": 1, "message": "m"} for r in issues],
+            "warnings": [{"rule": r, "line": 2, "message": "m"} for r in warnings],
+            "pass": passed, "exit_code": (0 if passed else 1) if exit_code is None else exit_code}
 
 
 class ParseTopicTest(unittest.TestCase):
@@ -93,6 +101,31 @@ class ChooseDiagramsTest(unittest.TestCase):
 
     def test_nothing(self):
         self.assertEqual(run_eval.choose_diagrams([], None, []), ([], None, None))
+
+
+class HandwrittenSvgTest(unittest.TestCase):
+    """The Mermaid path also writes diagram.svg next to diagram.mmd; that SVG is a render, not a drawing."""
+
+    def test_svg_beside_a_mmd_with_the_same_stem_is_a_render(self):
+        hand, rendered = run_eval.handwritten_svgs([Path("w/diagram.svg"), Path("w/diagram-2.svg")],
+                                                   [Path("w/diagram.mmd"), Path("w/diagram-2.mmd")])
+        self.assertEqual((hand, rendered), ([], [Path("w/diagram.svg"), Path("w/diagram-2.svg")]))
+
+    def test_svg_without_a_mmd_is_hand_written(self):
+        hand, rendered = run_eval.handwritten_svgs([Path("w/cache.svg")], [])
+        self.assertEqual((hand, rendered), ([Path("w/cache.svg")], []))
+
+    def test_same_stem_in_another_folder_does_not_count(self):
+        hand, rendered = run_eval.handwritten_svgs([Path("w/a/diagram.svg")], [Path("w/b/diagram.mmd")])
+        self.assertEqual((hand, rendered), ([Path("w/a/diagram.svg")], []))
+
+    def test_mixed_and_case_insensitive_suffix(self):
+        hand, rendered = run_eval.handwritten_svgs([Path("w/flow.SVG"), Path("w/drawn.svg")], [Path("w/flow.MMD")])
+        self.assertEqual((hand, rendered), ([Path("w/drawn.svg")], [Path("w/flow.SVG")]))
+
+    def test_saved_mmd_still_wins_over_hand_written_svg(self):
+        self.assertEqual(run_eval.choose_diagrams(["flowchart LR\nA-->B"], None, ["<svg/>"]),
+                         (["flowchart LR\nA-->B"], "file", "mermaid"))
 
 
 class DiagramTypeTest(unittest.TestCase):
@@ -152,6 +185,42 @@ class ArmMetricsTest(unittest.TestCase):
         self.assertIsNone(m["render_ok"])
         self.assertIsNone(m["nodes"])
 
+    def test_svg_topic_accepts_hand_written_svg(self):
+        m = run_eval.arm_metrics(["<svg/>"], [svg_check_json()], [True], "svg", fmt="svg")
+        self.assertEqual((m["type"], m["type_ok"]), ("svg", True))
+
+    def test_mermaid_topic_rejects_hand_written_svg(self):
+        m = run_eval.arm_metrics(["<svg/>"], [svg_check_json()], [True], "flowchart TD", fmt="svg")
+        self.assertEqual((m["type"], m["type_ok"]), ("svg", False))
+
+    def test_svg_topic_rejects_a_mermaid_diagram(self):
+        m = run_eval.arm_metrics(["flowchart TD\nA-->B"], [check()], [True], "svg")
+        self.assertFalse(m["type_ok"])
+
+    def test_svg_check_decides_checker_pass(self):
+        ok = run_eval.arm_metrics(["<svg/>"], [svg_check_json(warnings=["small-text-advisory"])], [True],
+                                  "svg", fmt="svg")
+        self.assertTrue(ok["checker_pass"])
+        self.assertEqual((ok["issues"], ok["warning_rules"], ok["checker_exit"]), (0, ["small-text-advisory"], [0]))
+        bad = run_eval.arm_metrics(["<svg/>", "<svg/>"],
+                                   [svg_check_json(), svg_check_json(False, ["low-contrast", "small-text"])],
+                                   [True, True], "svg", fmt="svg")
+        self.assertFalse(bad["checker_pass"])
+        self.assertEqual((bad["issues"], bad["issue_rules"], bad["checker_exit"]),
+                         (2, ["low-contrast", "small-text"], [0, 1]))
+
+    def test_svg_check_failure_to_run_is_unknown_not_fail(self):
+        m = run_eval.arm_metrics(["<svg/>"], [None], [True], "svg", fmt="svg")
+        self.assertIsNone(m["checker_pass"])
+        self.assertIsNone(m["issues"])
+
+    def test_svg_keeps_mermaid_metrics_na_and_reports_the_render(self):
+        m = run_eval.arm_metrics(["<svg/>"], [svg_check_json()], [True], "svg", fmt="svg")
+        self.assertEqual((m["nodes"], m["messages"], m["label_overruns"]), (None, None, None))
+        self.assertTrue(m["render_ok"])
+        failed = run_eval.arm_metrics(["<svg/>"], [svg_check_json()], [False], "svg", fmt="svg")
+        self.assertFalse(failed["render_ok"])
+
     def test_no_diagram(self):
         m = run_eval.arm_metrics([], [], [], "flowchart TD")
         self.assertEqual(m["diagrams"], 0)
@@ -203,6 +272,54 @@ class SvgDimensionsTest(unittest.TestCase):
         self.assertIn("--window-size=1000,800", cmd)
         self.assertIn("--screenshot=a.png", cmd)
         self.assertTrue(cmd[-1].startswith("file:///") and cmd[-1].endswith("a.svg"))
+
+
+class SvgPngTest(unittest.TestCase):
+    def test_render_diagram_is_preferred(self):
+        calls = []
+        got = run_eval.svg_png(lambda: (True, {"png": "r/a.png"}), lambda: calls.append("browser"), "a-render.png",
+                               exists=lambda p: True)
+        self.assertEqual((got["png"], got["method"], got["fallback_reason"]), ("r/a.png", "render_diagram.py", None))
+        self.assertEqual(calls, [])
+
+    def test_falls_back_to_the_browser_and_says_why(self):
+        got = run_eval.svg_png(lambda: (None, {"hint": "no browser for playwright"}), lambda: None, "a-render.png")
+        self.assertEqual((got["png"], got["method"], got["error"]), ("a-render.png", "browser", None))
+        self.assertIn("no browser for playwright", got["fallback_reason"])
+
+    def test_render_ok_without_a_png_file_falls_back(self):
+        got = run_eval.svg_png(lambda: (True, {"png": "gone.png"}), lambda: None, "a-render.png",
+                               exists=lambda p: False)
+        self.assertEqual(got["method"], "browser")
+
+    def test_both_fail(self):
+        got = run_eval.svg_png(lambda: (False, {"error": "bad svg"}), lambda: "no Chrome or Edge found", "x.png")
+        self.assertEqual((got["png"], got["method"]), (None, None))
+        self.assertEqual(got["error"], "no Chrome or Edge found")
+        self.assertIn("bad svg", got["fallback_reason"])
+
+
+class SkillGateTest(unittest.TestCase):
+    def result(self, tid, skill, base, skill_fmt="mermaid", base_fmt="mermaid"):
+        return {"id": tid, "arms": {"with-skill": {"metrics": skill, "format": skill_fmt},
+                                    "baseline": {"metrics": base, "format": base_fmt}}}
+
+    def test_with_skill_uses_the_checker_of_its_format_and_baseline_is_never_gated(self):
+        mm_ok = run_eval.arm_metrics(["flowchart LR"], [check()], [True], "flowchart LR")
+        svg_ok = run_eval.arm_metrics(["<svg/>"], [svg_check_json()], [True], "svg", fmt="svg")
+        svg_bad = run_eval.arm_metrics(["<svg/>"], [svg_check_json(False, ["no-background"])], [True],
+                                       "svg", fmt="svg")
+        gate = run_eval.skill_gate([self.result("01", svg_ok, svg_bad, "svg", "svg"),
+                                    self.result("02", mm_ok, svg_bad, "mermaid", "svg")])
+        self.assertEqual(gate["checker"], {"01": "svg_check.py", "02": "diagram_check.py"})
+        self.assertEqual(gate["failed"], [])
+        self.assertTrue(gate["pass"])
+
+    def test_with_skill_failure_fails_the_gate(self):
+        svg_bad = run_eval.arm_metrics(["<svg/>"], [svg_check_json(False, ["no-background"])], [True],
+                                       "svg", fmt="svg")
+        gate = run_eval.skill_gate([self.result("01", svg_bad, svg_bad, "svg", "svg")])
+        self.assertEqual((gate["failed"], gate["pass"]), (["01"], False))
 
 
 class AggregateTest(unittest.TestCase):
@@ -262,6 +379,45 @@ class ReportTest(unittest.TestCase):
         self.assertIn("- Total: cost $1.00, agent time 123 s, wall time 75 s", report)
         self.assertNotIn("judge", report.lower())
         self.assertNotIn("ab_key", report)
+
+
+class SvgReportTest(unittest.TestCase):
+    META = {"timestamp": "t", "model": None, "claude_version": "v", "plugin_dir": "p",
+            "scratch_root": "s", "review": "r", "seed": "sd", "wall_seconds": 75.2}
+
+    def results(self):
+        bad = svg_check_json(False, ["small-text"], ["text-outside"])
+        svg = run_eval.arm_metrics(["<svg/>"], [bad], [True], "svg", fmt="svg")
+        mm = run_eval.arm_metrics(["flowchart LR"], [check()], [True], "svg")
+        arms = {"with-skill": {"metrics": svg, "images": ["x.png"], "meta": {"cost_usd": 0.5, "num_turns": 3},
+                               "seconds": 60, "mermaid_from": "file", "format": "svg", "codes": ["<svg/>"],
+                               "checker": "svg_check.py", "render_methods": ["render_diagram.py"],
+                               "checks": [bad]},
+                "baseline": {"metrics": mm, "images": ["y.png"], "meta": {"cost_usd": 0.1, "num_turns": 2},
+                             "seconds": 20, "mermaid_from": "file", "format": "mermaid", "codes": ["flowchart LR"],
+                             "checker": "diagram_check.py", "checks": [check()]}}
+        return [{"id": "01-x", "lang": "zh-TW", "expected_type": "svg", "points": [], "arms": arms, "errors": []}]
+
+    def test_checker_column_names_svg_check_and_columns_stay_stable(self):
+        results = self.results()
+        report = run_eval.render_report(self.META, results, run_eval.aggregate(results))
+        lines = report.splitlines()
+        rows = [line for line in lines if line.startswith("| 01-x |")]
+        self.assertEqual(len(rows), 2)
+        header = next(line for line in lines if line.startswith("| Topic |"))
+        for row in rows:
+            self.assertEqual(row.count("|"), header.count("|"))
+        self.assertIn("FAIL (svg_check)", rows[0])
+        self.assertIn("render_diagram.py", rows[0])
+        self.assertNotIn("svg_check", rows[1])
+
+    def test_expected_and_got_are_stated_per_arm(self):
+        results = self.results()
+        report = run_eval.render_report(self.META, results, run_eval.aggregate(results))
+        self.assertIn("- with-skill: expected svg, got svg (hand-written SVG): type ok", report)
+        self.assertIn("- baseline: expected svg, got flowchart LR (Mermaid): type not as expected", report)
+        self.assertIn("with-skill checker issue: small-text", report)
+        self.assertIn("- With-skill checker gate: FAIL (01-x: svg_check.py)", report)
 
 
 class ReviewPageTest(unittest.TestCase):
