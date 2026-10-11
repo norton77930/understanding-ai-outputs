@@ -91,16 +91,18 @@ COPY_SUFFIXES = {".mmd", ".md", ".svg", ".png", ".json"}
 # --------------------------------------------------------------------------
 
 def parse_topic(topic_id, text):
-    """Read language, expected type, Source and the reader points from a topic file."""
+    """Read language, the optional Request line, expected type, Source and the reader
+    points from a topic file."""
     lang = re.search(r"^- Language:\s*(\S+)", text, re.M)
+    request = re.search(r"^- Request:\s*(.+?)\s*$", text, re.M)
     expected = re.search(r"^- Expected diagram type:\s*`([^`]+)`", text, re.M)
     source = _section(text, "Source")
     if not (lang and expected and source):
         raise ValueError(f"topic {topic_id}: missing Language, Expected diagram type or Source")
     points = [line[2:].strip() for line in (_section(text, "Reader should understand") or "").splitlines()
               if line.startswith("- ")]
-    return {"id": topic_id, "lang": lang.group(1), "expected_type": expected.group(1).strip(),
-            "source": source, "points": points}
+    return {"id": topic_id, "lang": lang.group(1), "request": request.group(1) if request else None,
+            "expected_type": expected.group(1).strip(), "source": source, "points": points}
 
 
 def _section(text, title):
@@ -109,8 +111,9 @@ def _section(text, title):
 
 
 def build_prompt(topic):
-    """The request plus the Source only (no hints, no reader points). Same in both arms."""
-    return f"{REQUEST}\n\n{topic['source'].strip()}\n"
+    """The request (the topic's Request line, else REQUEST) plus the Source only (no hints,
+    no reader points). Same in both arms."""
+    return f"{topic.get('request') or REQUEST}\n\n{topic['source'].strip()}\n"
 
 
 _FENCE_RE = re.compile(r"^[ \t]*```[ \t]*mermaid[ \t]*\n(.*?)\n[ \t]*```", re.M | re.S | re.I)
@@ -449,7 +452,7 @@ def render_report(meta, results, agg):
     out = [f"# diagram-explainer eval report ({meta['timestamp']})\n",
            f"- Model: {meta['model'] or 'claude CLI default'}",
            f"- claude version: {meta['claude_version']}",
-           f"- Request: `{REQUEST}` + the topic's Source",
+           f"- Request: the topic's `- Request:` line, else `{REQUEST}`, + the topic's Source",
            f"- Plugin dir (with-skill arm, checker, renderer): `{meta['plugin_dir']}`",
            f"- Topics: {', '.join(r['id'] for r in results)}",
            f"- Review page: `{meta.get('review')}` (A/B key in report.json only; seed {meta['seed']})",

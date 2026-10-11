@@ -45,14 +45,15 @@ Standard library only. Run it with `python` (`python3` if `python` is missing). 
 
 ```
 python <skill folder>/scripts/svg_check.py [FILE|-] [--display-width N] [--min-font-px N]
-    [--floor-width N] [--floor-font-px N]
+    [--floor-width N] [--floor-font-px N] [--sheet]
 ```
 
 - Input: FILE, or stdin when FILE is `-` or missing. UTF-8, a BOM is fine.
 - Font size has two tiers, in viewBox units:
   - Floor (issue `small-text`, fails): `--floor-font-px` (default 11) times `max(1, viewBox width / --floor-width)` (default 1200). Below it, text is too small on any normal screen. The defaults pass the hand-written SVGs that were rated 4-5 for presentation in the first blind rating.
   - Recommendation (warning `small-text-advisory`, does not fail): `--min-font-px` (default 12) times `max(1, viewBox width / --display-width)` (default 800). 12 px is comfortable text when the image is shown about 800 px wide. Text below the floor gets only the issue.
-- Change a flag only when the user asks, for example for a poster shown wider.
+- `--sheet`: for an overview sheet (`sheet-drawing.md`). Same as `--display-width 1600`, because a sheet is opened full screen or zoomed. The floor does not change, and on a canvas wider than about 1470 units it is above the recommendation, so the floor is the limit that counts. An explicit `--display-width` wins over `--sheet`.
+- Change another flag only when the user asks, for example for a poster shown wider.
 - Contrast floor: 4.5:1 (WCAG AA) between a text and the color under it. Size warning above 200 KB.
 
 Exit codes:
