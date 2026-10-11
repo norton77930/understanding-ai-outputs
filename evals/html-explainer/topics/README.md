@@ -1,6 +1,6 @@
 # Eval topics
 
-Status: DRAFT 2026-10-11 (round 4, issue #55), waiting for maintainer review. Earlier topics are kept in `round1/` (rounds 1-2) and `round3/`; the harness reads only `topics/0*.md`.
+Status: APPROVED 2026-10-11 (round 4, issue #55). Earlier topics are kept in `round1/` (rounds 1-2) and `round3/`; the harness reads only `topics/0*.md`.
 
 Four topics for the html-explainer eval (issue #32, spec #29; round 4 for issue #55), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with the topic's `- Request:` line when it has one, else "Make an interactive web page that explains the following.", and compares the with-skill and baseline pages. Both arms get the same request.
 
@@ -26,7 +26,7 @@ When you review or change a topic, check it for:
 
 ## Approval
 
-Round 4: draft, waiting for maintainer review.
+Round 4: approved by the maintainer on 2026-10-11, no changes.
 
 Round 3 (`round3/`): approved by the maintainer on 2026-10-09, no changes; used in run `20261009-021002`.
 
