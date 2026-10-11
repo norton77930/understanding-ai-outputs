@@ -9,7 +9,9 @@ ffprobe) is present, 2 otherwise. Standard library only.
 
 Output keys:
     ready         true when the minimum set is present
-    capabilities  uv, ffmpeg, ffprobe, manim, kokoro_models, edge_tts_network.
+    capabilities  uv, ffmpeg, ffprobe, manim, kokoro_models, edge_tts_network,
+                  elevenlabs_api_key (only whether ELEVENLABS_API_KEY is set;
+                  never its value or length, no network call).
                   Each is {"available": bool, "hint": str|null}; the hint is an
                   install or fix hint when the capability is missing. A probe
                   that was not run (--quick) adds "skipped": true.
@@ -59,6 +61,9 @@ import sys
 from pathlib import Path
 
 EDGE_TTS_HOST = ("speech.platform.bing.com", 443)
+# The ElevenLabs key comes only from this environment variable. It is read
+# when needed and never stored, printed or passed to a child process.
+ELEVENLABS_KEY_VAR = "ELEVENLABS_API_KEY"
 NETWORK_TIMEOUT = 3
 MANIM_TIMEOUT = 300
 
@@ -70,6 +75,11 @@ FONTS = [
     # NotoSansCJK-Regular.ttc holds every CJK variant, TC included.
     ("Noto Sans CJK TC", re.compile(r"^notosans(cjk(tc)?|tc)($|[-_.\[])"), "Noto Sans CJK TC"),
 ]
+
+
+def child_env():
+    """Environment for child processes: os.environ without the ElevenLabs key."""
+    return {k: v for k, v in os.environ.items() if k.upper() != ELEVENLABS_KEY_VAR}
 
 
 def report(available, hint=None, skipped=False):
@@ -147,7 +157,7 @@ def probe_manim(uv_path, quick):
     cmd = manim_command(uv_path)
     try:
         proc = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL,
-                              timeout=MANIM_TIMEOUT)
+                              timeout=MANIM_TIMEOUT, env=child_env())
         ok = proc.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         ok = False
@@ -171,6 +181,14 @@ def probe_network(quick):
     except OSError:
         return report(False, hint)
     return report(True)
+
+
+def probe_elevenlabs_key():
+    """Only whether the key is set: never its value or length, no network."""
+    return report(os.environ.get(ELEVENLABS_KEY_VAR, "").strip(),
+                  f"{ELEVENLABS_KEY_VAR} is not set. It is needed only when the storyboard "
+                  "names the elevenlabs engine. Set it in the environment, never in a file "
+                  "of the project.")
 
 
 # --- models -----------------------------------------------------------------
@@ -252,7 +270,7 @@ def fc_list_lines():
         return []
     try:
         proc = subprocess.run([fc_list], capture_output=True, stdin=subprocess.DEVNULL,
-                              timeout=30)
+                              timeout=30, env=child_env())
     except (OSError, subprocess.TimeoutExpired):
         return []
     return proc.stdout.decode("utf-8", errors="replace").splitlines()
@@ -285,6 +303,7 @@ def build_report(quick):
     caps["manim"] = probe_manim(find_tool("uv"), quick)
     caps["kokoro_models"] = probe_kokoro(cache)
     caps["edge_tts_network"] = probe_network(quick)
+    caps["elevenlabs_api_key"] = probe_elevenlabs_key()
     font, font_path = select_font()
     return {
         "ready": all(caps[n]["available"] for n in ("uv", "ffmpeg", "ffprobe")),

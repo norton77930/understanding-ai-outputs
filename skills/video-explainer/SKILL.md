@@ -40,6 +40,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
    - Pick `lang` from the user's language (`en`, `zh-TW`).
    - Pick the output preset: `explainer` by default, `youtube` for a YouTube upload, `short` for Shorts, Reels or vertical video.
    - Respect an engine or voice that the user names.
+   - Use ElevenLabs only when the user asks for it. Set `"engine": {"name": "elevenlabs", "voice": "<voice_id>"}`. Ask the user for the voice ID. There is no default voice. The API key comes only from the `ELEVENLABS_API_KEY` environment variable. Never write the key in the storyboard or in any file.
    - Write the narration with the rules in "Narration" below.
 4. **Plan.** Run `python <skill folder>/scripts/make_video.py plan <storyboard>`. On exit 1, fix the storyboard from `errors` and run `plan` again.
 5. **Show the storyboard and wait.** Show the user:
@@ -49,6 +50,7 @@ Rendering takes minutes. Never render before the user approves the storyboard.
    - every entry in `notices`: accent fallback, publishing risk, length outside the mode's length or over the `short` limit, Chinese scenes outside the mode's characters per scene
    - each model in `downloads`, with its size in MB. Say which ones are only for the offline fallback (`"fallback": true`).
    - the first-run package install and its size, from the doctor's `manim` hint
+   - for ElevenLabs: `narration_cost` (`characters`, `estimated_credits` and the `note` with the price). ElevenLabs is paid. Show this before any call to ElevenLabs.
 
    Then stop and wait. The user approves or asks for changes in plain words, including another mode ("make it a deep dive", "shorter"). Apply the changes to the storyboard, run `plan` again and show the result again. Do not render until the user approves.
 6. **Install check and models.** Do these steps only after the user agrees to the stated sizes:

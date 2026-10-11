@@ -55,6 +55,11 @@ block above, which `uv run` installs. Heavy imports happen only inside them.
 Narration engines (selection rules in select_engine()):
     kokoro    offline; en default (af_heart), zh-TW offline fallback (zf_001)
     edge-tts  network; zh-TW default (zh-TW-HsiaoChenNeural)
+    elevenlabs  network, paid; only when the storyboard names it with a voice
+              ID: {"name": "elevenlabs", "voice": "<voice_id>"}. The key comes
+              only from ELEVENLABS_API_KEY (read at synthesis, never stored,
+              printed or cached); ELEVENLABS_API_BASE overrides the API URL.
+              `plan` reports the characters and credits it will use.
     silent    tests only; silence sized from the text-length estimate
 Kokoro model files live in the doctor's cache dir (VIDEO_EXPLAINER_CACHE or
 the user cache dir), never in the project. When they are missing, `plan`
@@ -80,6 +85,8 @@ import sys
 import textwrap
 import time
 import traceback
+import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from pathlib import Path
@@ -176,6 +183,47 @@ class RuntimeFailure(Exception):
     def __init__(self, message, extra=None):
         super().__init__(message)
         self.extra = extra or {}
+
+
+# ElevenLabs key values that drop_key() removed from os.environ. Only redact()
+# reads this, so output written after narration is still masked.
+_dropped_keys = []
+
+
+def drop_key():
+    """Remove the ElevenLabs key from os.environ once narration is done.
+
+    Processes started later (ManimCE's LaTeX, dvisvgm, ffmpeg) inherit
+    os.environ, so the key must not stay there. The name is compared in upper
+    case, as doctor.child_env() does.
+    """
+    for name in [k for k in os.environ if k.upper() == doctor.ELEVENLABS_KEY_VAR]:
+        value = os.environ.pop(name).strip()
+        if value and value not in _dropped_keys:
+            _dropped_keys.append(value)
+
+
+def redact(text):
+    """text with the ElevenLabs key (set now or dropped) replaced by [redacted]."""
+    keys = (os.environ.get(doctor.ELEVENLABS_KEY_VAR, ""), *_dropped_keys)
+    if isinstance(text, str):
+        # The stripped key is a substring of the raw one, so masking it is
+        # enough; a whitespace-only key strips to "" and masks nothing.
+        for value in dict.fromkeys(key.strip() for key in keys):
+            if value:
+                text = text.replace(value, "[redacted]")
+    return text
+
+
+def redact_data(data):
+    """redact() applied to every string in JSON-ready data."""
+    if isinstance(data, str):
+        return redact(data)
+    if isinstance(data, dict):
+        return {redact_data(k): redact_data(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [redact_data(v) for v in data]
+    return data
 
 
 # ---------------------------------------------------------------- estimates
@@ -414,7 +462,123 @@ class EdgeTtsEngine:
             raise RuntimeError("edge-tts returned no audio")
 
 
-ENGINES = {"silent": SilentEngine(), "kokoro": KokoroEngine(), "edge-tts": EdgeTtsEngine()}
+# ElevenLabs (issue #45). The price was checked on the date below; update both together.
+ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
+ELEVENLABS_MODEL = "eleven_multilingual_v2"
+ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128"
+ELEVENLABS_CREDITS_PER_CHARACTER = 1  # eleven_multilingual_v2
+ELEVENLABS_USD_PER_1K_CHARACTERS = 0.08
+ELEVENLABS_PRICE_CHECKED = "2026-10-11"
+ELEVENLABS_PRICING_URL = "https://elevenlabs.io/pricing/api"
+ELEVENLABS_COST_NOTE = (f"about ${ELEVENLABS_USD_PER_1K_CHARACTERS:.2f} per 1K characters for "
+                        f"{ELEVENLABS_MODEL} (checked {ELEVENLABS_PRICE_CHECKED}, "
+                        f"{ELEVENLABS_PRICING_URL}); cached audio is reused, so preview and "
+                        "final pay once")
+ELEVENLABS_TIMEOUT = 60  # seconds for one request
+ELEVENLABS_VOICE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+ELEVENLABS_DETAIL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+ELEVENLABS_STATUS_HINTS = {
+    400: "check the voice ID and the narration",
+    401: f"check {doctor.ELEVENLABS_KEY_VAR} and the credits of the account",
+    403: f"check {doctor.ELEVENLABS_KEY_VAR} and the plan of the account",
+    404: "check the voice ID",
+    422: "check the voice ID and the narration",
+    429: "too many requests or no credits left; wait, then run again",
+}
+# Engine object fields that look like a credential (validate() rejects them).
+CREDENTIAL_FIELD_RE = re.compile(r"key|token|secret|auth|passw|credential", re.I)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: it would send the key header to another URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def elevenlabs_detail(body):
+    """ElevenLabs' detail.status or detail.code from an error body, or None.
+    Only a short plain token is kept, with the key masked."""
+    try:
+        detail = json.loads(body.decode("utf-8")).get("detail")
+    except (ValueError, AttributeError, UnicodeDecodeError):
+        return None
+    if not isinstance(detail, dict):
+        return None
+    for field in ("status", "code"):
+        value = detail.get(field)
+        if isinstance(value, str) and ELEVENLABS_DETAIL_RE.match(value):
+            return redact(value)
+    return None
+
+
+class ElevenLabsEngine:
+    """ElevenLabs text to speech over HTTPS (paid, needs network).
+
+    Runs only when the storyboard names it with a voice ID. The key is read
+    from ELEVENLABS_API_KEY inside synthesize() at call time and sent only in
+    the xi-api-key header: it is never stored on this object, written to a
+    file, part of the cache key or passed to a child process. Every request
+    error becomes a RuntimeError built from the status code and ElevenLabs'
+    detail status or code only.
+    """
+
+    name = "elevenlabs"
+    default_voice = None
+    extension = "mp3"
+
+    def voice_for(self, lang):
+        return None
+
+    def missing_models(self, voice):
+        return []
+
+    def synthesize(self, text, lang, voice, path):
+        key = os.environ.get(doctor.ELEVENLABS_KEY_VAR, "").strip()
+        if not key:
+            raise RuntimeFailure(f"{doctor.ELEVENLABS_KEY_VAR} is not set. Set it in the "
+                                 "environment to use the elevenlabs engine.")
+        base = (os.environ.get("ELEVENLABS_API_BASE") or ELEVENLABS_API_BASE).rstrip("/")
+        url = (f"{base}/v1/text-to-speech/{urllib.parse.quote(voice, safe='')}"
+               f"?output_format={ELEVENLABS_OUTPUT_FORMAT}")
+        payload = json.dumps({"text": text, "model_id": ELEVENLABS_MODEL}).encode("utf-8")
+        status = failure = audio = None
+        try:
+            request = urllib.request.Request(
+                url, data=payload, method="POST",
+                headers={"xi-api-key": key, "Content-Type": "application/json",
+                         "Accept": "audio/mpeg"})
+            opener = urllib.request.build_opener(_NoRedirect)
+            with opener.open(request, timeout=ELEVENLABS_TIMEOUT) as response:
+                audio = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            try:
+                body = exc.read(4096)
+            except Exception:
+                body = b""
+            failure = elevenlabs_detail(body)
+        except Exception as exc:  # URLError, socket errors, timeouts, anything
+            failure = type(exc).__name__
+        finally:
+            key = request = None
+        # Raised outside the except blocks, so no original exception (with its
+        # request, headers or message) is chained to the error.
+        if status is not None:
+            hint = ELEVENLABS_STATUS_HINTS.get(
+                status, "ElevenLabs server error; try again later" if status >= 500 else None)
+            detail = "".join(f"; {part}" for part in (failure, hint) if part)
+            raise RuntimeError(f"ElevenLabs request failed: HTTP {status}{detail}")
+        if failure is not None:
+            raise RuntimeError(f"ElevenLabs request failed: {failure} (no HTTP reply); "
+                               "check the network")
+        if not audio:
+            raise RuntimeError("ElevenLabs returned no audio")
+        Path(path).write_bytes(audio)
+
+
+ENGINES = {"silent": SilentEngine(), "kokoro": KokoroEngine(), "edge-tts": EdgeTtsEngine(),
+           "elevenlabs": ElevenLabsEngine()}
 
 PUBLISHING_PRESETS = ("youtube", "short")
 
@@ -424,6 +588,13 @@ PUBLISHING_NOTICE = ("edge-tts uses an unofficial Microsoft endpoint with no ser
                      "for publishing; for a {preset} video consider Kokoro instead "
                      "(Apache-2.0, offline, mainland Mandarin accent for Chinese): "
                      "set \"engine\": \"kokoro\" in the storyboard.")
+ELEVENLABS_PUBLISHING_NOTICE = (
+    "ElevenLabs for a {preset} video: the free plan has no commercial licence and needs "
+    "\"elevenlabs.io\" in the title of each published video; paid plans include a "
+    "commercial licence.")
+ELEVENLABS_KEY_NOTICE = (f"{doctor.ELEVENLABS_KEY_VAR} is not set. preview and final need it "
+                         "for the elevenlabs engine; set it in the environment, never in the "
+                         "storyboard.")
 
 
 def is_zh_tw(lang):
@@ -487,6 +658,8 @@ def select_engine(board, offline=False):
                            "storyboard 'engine' field."])
     if name == "edge-tts" and board["preset"] in PUBLISHING_PRESETS:
         notices.append(PUBLISHING_NOTICE.format(preset=board["preset"]))
+    if name == "elevenlabs" and board["preset"] in PUBLISHING_PRESETS:
+        notices.append(ELEVENLABS_PUBLISHING_NOTICE.format(preset=board["preset"]))
     return {"name": name, "voice": voice, "reason": reason, "fallback": fallback,
             "notices": notices}
 
@@ -560,6 +733,19 @@ def validate(board):
                       "{\"name\": \"kokoro\", \"voice\": \"zf_001\"}")
     elif name is not None and name not in ENGINES:
         errors.append(f"unknown engine {name!r}; known engines: {', '.join(ENGINES)}")
+    if isinstance(engine, dict):
+        for field in engine:
+            if CREDENTIAL_FIELD_RE.search(str(field)):
+                errors.append(f"engine field {str(field)[:40]!r} looks like a credential; remove "
+                              "it. The ElevenLabs key comes only from the "
+                              f"{doctor.ELEVENLABS_KEY_VAR} environment variable.")
+    if name == "elevenlabs":
+        voice = engine.get("voice") if isinstance(engine, dict) else None
+        if not isinstance(voice, str) or not ELEVENLABS_VOICE_RE.match(voice):
+            errors.append("the elevenlabs engine needs an ElevenLabs voice ID (letters and "
+                          "digits, from your ElevenLabs voice library). Ask the user to choose "
+                          "one, then set \"engine\": {\"name\": \"elevenlabs\", "
+                          "\"voice\": \"<voice_id>\"}.")
     scenes = board.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         errors.append("scenes must be a non-empty list")
@@ -654,7 +840,8 @@ def out_dir_for(board, out):
 
 
 def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(redact_data(data), indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
 
 
 # ---------------------------------------------------------------- plan
@@ -723,6 +910,14 @@ def cmd_plan(args):
               "out_dir": str(out)}
     if zh_chars is not None:
         result["zh_scene_chars"] = zh_chars
+    if selection["name"] == "elevenlabs":
+        characters = sum(len(s["narration"]) for s in board["scenes"])
+        result["narration_cost"] = {
+            "engine": "elevenlabs", "model": ELEVENLABS_MODEL, "characters": characters,
+            "estimated_credits": characters * ELEVENLABS_CREDITS_PER_CHARACTER,
+            "note": ELEVENLABS_COST_NOTE}
+        if not os.environ.get(doctor.ELEVENLABS_KEY_VAR, "").strip():
+            notices.append(ELEVENLABS_KEY_NOTICE)
     write_json(out / "plan.json", result)
     return result
 
@@ -748,7 +943,7 @@ def run_tool(cmd):
     try:
         proc = subprocess.run([exe, *cmd[1:]], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=timeout)
+                              timeout=timeout, env=doctor.child_env())
     except FileNotFoundError:
         raise RuntimeFailure(f"{cmd[0]} not found on PATH; run the doctor script")
     except subprocess.TimeoutExpired:
@@ -1025,7 +1220,7 @@ def narrate(board, selection, work):
     except EngineFailed as exc:
         if not selection["fallback"]:
             raise RuntimeFailure(str(exc))
-        print(f"{exc}; falling back to Kokoro Chinese", file=sys.stderr)
+        print(redact(f"{exc}; falling back to Kokoro Chinese"), file=sys.stderr)
         selection = use_fallback(selection, "edge-tts failed")
     require_models(selection)
     try:
@@ -1065,7 +1260,10 @@ def prepare(args):
     work.mkdir(exist_ok=True)
     if selection["fallback"] and not edge_tts_reachable():
         selection = use_fallback(selection, "edge-tts unreachable")
-    selection, timing, narration = narrate(board, selection, work)
+    try:
+        selection, timing, narration = narrate(board, selection, work)
+    finally:
+        drop_key()  # render's child processes must not inherit the key
     return board, selection, functions, out, work, timing, narration
 
 
@@ -1243,11 +1441,11 @@ def main(argv=None):
         result, code = {"ok": False, "command": args.command, "errors": [str(exc)],
                         **exc.extra}, 2
     except Exception as exc:  # keep the one-JSON-object contract for any bug
-        traceback.print_exc(file=sys.stderr)
+        sys.stderr.write(redact(traceback.format_exc()))
         message = f"unexpected {type(exc).__name__}: {exc}"
         result, code = {"ok": False, "command": args.command, "errors": [message],
                         "error": str(exc), "type": type(exc).__name__}, 2
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(redact_data(result), indent=2, ensure_ascii=False))
     return code
 
 
