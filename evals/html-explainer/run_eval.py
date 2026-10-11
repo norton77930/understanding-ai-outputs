@@ -7,9 +7,10 @@ Usage:
                                             [--dry-run] [--workers N]
                                             [--timeout SECONDS]
 
-For each topic in topics/ the harness sends the same request ("Make an
-interactive web page that explains the following." + the topic's Source) in
-two arms, each from its own scratch folder outside the repo:
+For each topic in topics/ the harness sends the same request (the topic's
+"- Request:" line, else "Make an interactive web page that explains the
+following.", + the topic's Source) in two arms, each from its own scratch
+folder outside the repo:
     with-skill  claude -p ... --plugin-dir <plugin dir>
     baseline    claude -p ...   (no plugin)
 It then finds the newest .html the agent left under the scratch folder and
@@ -78,19 +79,26 @@ def _section(text, title):
 
 
 def parse_topic(topic_id, text):
-    """Read the language, the Source and the "Reader should understand" bullets."""
+    """Read the language, the optional Request line, the Source and the "Reader should
+    understand" bullets."""
     lang = re.search(r"^- Language:\s*(\S+)", text, re.M)
+    request = re.search(r"^- Request:\s*(.+?)\s*$", text, re.M)
     source = _section(text, "Source")
     if not (lang and source):
         raise ValueError(f"topic {topic_id}: missing Language or Source")
     points = [line[2:].strip() for line in (_section(text, "Reader should understand") or "").splitlines()
               if line.startswith("- ")]
-    return {"id": topic_id, "lang": lang.group(1), "source": source, "points": points}
+    return {"id": topic_id, "lang": lang.group(1), "request": request.group(1) if request else None,
+            "source": source, "points": points}
+
+
+DEFAULT_REQUEST = "Make an interactive web page that explains the following."
 
 
 def build_prompt(topic):
-    """The request. Both arms get the same one."""
-    return f"Make an interactive web page that explains the following.\n\n{topic['source'].strip()}\n"
+    """The request (the topic's Request line, else DEFAULT_REQUEST), then the Source.
+    Both arms get the same one."""
+    return f"{topic.get('request') or DEFAULT_REQUEST}\n\n{topic['source'].strip()}\n"
 
 
 def choose_html(candidates):

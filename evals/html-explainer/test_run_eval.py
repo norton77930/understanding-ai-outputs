@@ -53,6 +53,21 @@ class TopicTest(unittest.TestCase):
         self.assertTrue(prompt.startswith("Make an interactive web page that explains the following."))
         self.assertTrue(prompt.rstrip().endswith("Text."))
 
+    def test_request_line_replaces_the_default_request(self):
+        topic = run_eval.parse_topic("05-x", TOPIC.replace(
+            "- Intended interaction", "- Request: 用工程圖紙（blueprint）風格做一個互動網頁，說明以下內容。\n"
+            "- Intended interaction"))
+        self.assertEqual(topic["request"], "用工程圖紙（blueprint）風格做一個互動網頁，說明以下內容。")
+        prompt = run_eval.build_prompt(topic)
+        self.assertTrue(prompt.startswith("用工程圖紙（blueprint）風格做一個互動網頁，說明以下內容。\n\n"))
+        self.assertTrue(prompt.rstrip().endswith("第二行。"))
+
+    def test_no_request_line_keeps_the_default_request(self):
+        topic = run_eval.parse_topic("04-x", TOPIC)
+        self.assertIsNone(topic["request"])
+        self.assertTrue(run_eval.build_prompt(topic).startswith(
+            "Make an interactive web page that explains the following."))
+
 
 class ChooseHtmlTest(unittest.TestCase):
     def test_newest_wins_and_count_is_recorded(self):

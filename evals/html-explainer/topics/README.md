@@ -1,17 +1,17 @@
 # Eval topics
 
-Status: APPROVED 2026-10-09 (round 3, spec #29). Round 1-2 topics (approved 2026-10-09, issue #32) are kept in `round1/`; the harness reads only `topics/0*.md`.
+Status: DRAFT 2026-10-11 (round 4, issue #55), waiting for maintainer review. Earlier topics are kept in `round1/` (rounds 1-2) and `round3/`; the harness reads only `topics/0*.md`.
 
-Four topics for the html-explainer eval (issue #32, spec #29), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with a request such as "Make an interactive page for the following." and compares the with-skill and baseline pages.
+Four topics for the html-explainer eval (issue #32, spec #29; round 4 for issue #55), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with the topic's `- Request:` line when it has one, else "Make an interactive web page that explains the following.", and compares the with-skill and baseline pages. Both arms get the same request.
 
-| File | Topic | Language | Intended interaction |
-|---|---|---|---|
-| `01-monty-hall.md` | Why switching doors wins two times in three | zh-TW | predict-then-reveal, simulation |
-| `02-lru-cache.md` | How an LRU cache picks what to evict | zh-TW | step-through, preset scenarios |
-| `03-base-rate.md` | Why a positive test can still mean "probably not sick" | zh-TW | sliders, population grid |
-| `04-pendulum.md` | What sets a pendulum's period | zh-TW | sliders, side-by-side animation |
+| File | Topic | Language | Request | Checks |
+|---|---|---|---|---|
+| `01-db-migration-plan.md` | An AI-written plan to move orders from MySQL to PostgreSQL | zh-TW | blueprint style | blueprint on request; visible assumptions (2) and an open decision |
+| `02-cache-proposal.md` | An AI proposal to put a Redis cache in front of a product API | zh-TW | blueprint style | blueprint on request; visible assumptions (2) and an open decision; hit-rate math |
+| `03-hash-table-resize.md` | How a hash table resizes when the load factor passes 0.75 | zh-TW | default | default pages do not regress |
+| `04-hosting-cost-estimate.md` | An AI estimate of a blog's monthly hosting cost | zh-TW | default | default pages do not regress; visible assumptions appear without a style |
 
-All four topics are in zh-TW (spec #29 revision 2026-10-09), so the maintainer can rate every page; English output is covered by the trigger eval and the automated checks. Round 3 uses new topics so the maintainer rates topics they have not seen in earlier rounds; the round-1 topics stay in `round1/` for the earlier runs. The sources are sized in characters (about 200–330). The "Reader should understand" bullets are the checklist for the maintainer's blind rating of which page explains better; they are written in the topic's language so the rater can check them against the page text directly. The interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The suggested numbers in the hints were calculated by hand and are there so the reviewer can check a page's values.
+Round 4 answers the two #55 acceptance questions: (a) a blueprint page on request against Claude without the skill given the same request (01, 02), and (b) default pages do not regress (03, 04). 01, 02 and 04 are AI output with stated assumptions, so the optional "make the assumptions visible" pattern fits them; 03 has none, so the pattern must not appear. All are zh-TW, so the maintainer can rate every page, and new, so the maintainer has not seen pages of them before. The sources are sized in characters (about 300–350). The "Reader should understand" bullets are the checklist for the blind rating; the interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The check values were calculated by hand.
 
 ## Review checklist
 
@@ -26,6 +26,8 @@ When you review or change a topic, check it for:
 
 ## Approval
 
-Round 3 set: approved by the maintainer on 2026-10-09, no changes.
+Round 4: draft, waiting for maintainer review.
+
+Round 3 (`round3/`): approved by the maintainer on 2026-10-09, no changes; used in run `20261009-021002`.
 
 Round 1-2 set (`round1/`): approved by the maintainer on 2026-10-09. Change during review: topics 01 and 03 rewritten from English to zh-TW (spec #29 revision 2026-10-09), with the same facts, numbers and understanding points.
