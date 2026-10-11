@@ -129,13 +129,16 @@ PRESETS = {
 }
 DEFAULT_PRESET = "explainer"
 
-# Intent modes: the scene count range (outside it `plan` fails) and the target
-# length in seconds (outside it `plan` adds a notice). Add a row to add a mode.
+# Intent modes: the scene count range (outside it `plan` fails), the target
+# length in seconds (outside it `plan` adds a notice) and the characters per
+# Chinese scene (an average outside it makes `plan` add a notice). Add a row to
+# add a mode. The `short` preset uses the quick range of characters in every mode.
 MODES = {
-    "quick": {"scenes": [3, 6], "target_seconds": [30, 90]},
-    "standard": {"scenes": [6, 15], "target_seconds": [120, 240]},
-    "deep": {"scenes": [15, 30], "target_seconds": [300, 600]},
+    "quick": {"scenes": [3, 6], "target_seconds": [30, 90], "zh_scene_chars": [25, 35]},
+    "standard": {"scenes": [6, 15], "target_seconds": [120, 240], "zh_scene_chars": [45, 60]},
+    "deep": {"scenes": [15, 30], "target_seconds": [300, 600], "zh_scene_chars": [45, 60]},
 }
+SHORT_PRESET = "short"
 DEFAULT_MODE = "standard"
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -596,6 +599,28 @@ def mode_info(name):
     return {"name": name, "scenes": m["scenes"], "target_seconds": m["target_seconds"]}
 
 
+def zh_scene_chars_info(board, scenes):
+    """Characters (hanzi plus Latin words) per Chinese scene against the range in
+    force: the quick range for the `short` preset, else the range of the mode.
+    Returns (info, notice); notice is None when the average is inside the range."""
+    if board["preset"] == SHORT_PRESET:
+        label, rng = "short preset", MODES["quick"]["zh_scene_chars"]
+    else:
+        label, rng = f"{board['mode']} mode", MODES[board["mode"]]["zh_scene_chars"]
+    counts = [s["units"]["hanzi"] + s["units"]["words"] for s in scenes]
+    average = round(sum(counts) / len(counts), 1)
+    info = {"range": list(rng), "average": average, "per_scene": counts}
+    low, high = rng
+    if low <= average <= high:
+        return info, None
+    if average < low:
+        side, fix = "below", "write fuller scenes, not more scenes"
+    else:
+        side, fix = "above", "write shorter scenes, not fewer scenes"
+    return info, (f"Chinese narration: average {average:g} characters per scene is {side} "
+                  f"the {label}'s {low}-{high}; {fix}.")
+
+
 def check_scene_count(board):
     """The scene count must fit the mode. Only `plan` checks it, so a storyboard
     that the user approved still previews and renders."""
@@ -646,16 +671,27 @@ def cmd_plan(args):
     total = round(sum(s["estimated_seconds"] for s in scenes), 2)
     mode = board["mode"]
     low, high = MODES[mode]["target_seconds"]
+    zh_chars, zh_notice = (zh_scene_chars_info(board, scenes) if is_zh(board["lang"])
+                           else (None, None))
+    # Chinese scenes below their character range: fuller scenes are the fix, so
+    # one notice carries the short length and "add scenes" is not advised.
+    zh_too_short = zh_chars is not None and zh_chars["average"] < zh_chars["range"][0]
     if total > high:
         notices.append(f"Estimated length {total} s is above the {mode} mode target of "
                        f"{low}-{high} s; shorten the scenes or switch to a deeper mode.")
     elif total < low:
-        notices.append(f"Estimated length {total} s is below the {mode} mode target of "
-                       f"{low}-{high} s; add scenes or switch to a quicker mode.")
+        if zh_too_short:
+            zh_notice += (f" Estimated length {total} s is below the {mode} mode target of "
+                          f"{low}-{high} s.")
+        else:
+            notices.append(f"Estimated length {total} s is below the {mode} mode target of "
+                           f"{low}-{high} s; add scenes or switch to a quicker mode.")
     limit = preset["max_seconds"]
     if limit is not None and total > limit:
         notices.append(f"Estimated length {total} s exceeds the {limit} s limit for the "
                        f"{board['preset']} preset; shorten the storyboard.")
+    if zh_notice:
+        notices.append(zh_notice)
     out = out_dir_for(board, args.out)
     result = {"ok": True, "command": "plan", "slug": board["slug"], "lang": board["lang"],
               "preset": preset_info(board["preset"]), "mode": mode_info(mode),
@@ -666,6 +702,8 @@ def cmd_plan(args):
               "estimated_total_seconds": total,
               "estimated_render_seconds": estimate_render_seconds(total, preset),
               "out_dir": str(out)}
+    if zh_chars is not None:
+        result["zh_scene_chars"] = zh_chars
     write_json(out / "plan.json", result)
     return result
 

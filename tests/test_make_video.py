@@ -315,6 +315,115 @@ class ModeTests(unittest.TestCase):
                         data["notices"])
 
 
+class ChineseSceneLengthTests(unittest.TestCase):
+    """Characters per Chinese scene against the range of the mode (or `short` preset)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def plan(self, count, chars, mode="standard", preset="explainer", lang="zh-TW"):
+        board = load_storyboard()
+        board.update(lang=lang, mode=mode, preset=preset, scenes=[
+            {"id": f"s{i + 1}", "narration": "測" * chars} for i in range(count)])
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        return run([sys.executable, str(SCRIPT), "plan", str(path), "--out", str(self.tmp / "out")])
+
+    @staticmethod
+    def length_notices(data):
+        return [n for n in data["notices"] if "characters per scene" in n]
+
+    def test_reports_the_range_and_the_average_per_scene(self):
+        for mode, count, rng in (("quick", 4, [25, 35]), ("standard", 8, [45, 60]),
+                                 ("deep", 16, [45, 60])):
+            code, data = self.plan(count, 30 if mode == "quick" else 50, mode=mode)
+            self.assertEqual(code, 0, data)
+            info = data["zh_scene_chars"]
+            self.assertEqual(info["range"], rng)
+            self.assertEqual(info["per_scene"], [30 if mode == "quick" else 50] * count)
+            self.assertEqual(info["average"], 30 if mode == "quick" else 50)
+            self.assertEqual(self.length_notices(data), [], data["notices"])
+
+    def test_average_below_the_range_adds_one_notice(self):
+        code, data = self.plan(8, 31)
+        self.assertEqual(code, 0, data)
+        notices = self.length_notices(data)
+        self.assertEqual(len(notices), 1, data["notices"])
+        self.assertIn("average 31 characters per scene", notices[0])
+        self.assertIn("below", notices[0])
+        self.assertIn("standard mode", notices[0])
+        self.assertIn("45-60", notices[0])
+        self.assertIn("not more scenes", notices[0])
+
+    def test_average_above_the_range_adds_one_notice(self):
+        code, data = self.plan(16, 70, mode="deep")
+        self.assertEqual(code, 0, data)
+        notices = self.length_notices(data)
+        self.assertEqual(len(notices), 1, data["notices"])
+        self.assertIn("above", notices[0])
+        self.assertIn("deep mode", notices[0])
+
+    def test_the_average_decides_not_a_single_scene(self):
+        board = load_storyboard()
+        board.update(lang="zh-TW", mode="standard", scenes=[
+            {"id": f"s{i + 1}", "narration": "測" * n} for i, n in
+            enumerate([30, 50, 50, 50, 50, 70])])
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        code, data = run([sys.executable, str(SCRIPT), "plan", str(path),
+                          "--out", str(self.tmp / "out")])
+        self.assertEqual(code, 0, data)
+        self.assertEqual(self.length_notices(data), [], data["notices"])
+
+    def test_latin_words_count_as_characters(self):
+        board = load_storyboard()
+        board.update(lang="zh-TW", mode="quick", scenes=[
+            {"id": f"s{i + 1}", "narration": "測" * 29 + " Python 與 API"} for i in range(3)])
+        path = self.tmp / "storyboard.json"
+        path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+        code, data = run([sys.executable, str(SCRIPT), "plan", str(path),
+                          "--out", str(self.tmp / "out")])
+        self.assertEqual(code, 0, data)
+        # 29 + 1 (與) + 2 Latin words.
+        self.assertEqual(data["zh_scene_chars"]["per_scene"], [32, 32, 32])
+
+    def test_short_preset_uses_the_quick_range_in_every_mode(self):
+        code, data = self.plan(8, 50, mode="standard", preset="short")
+        self.assertEqual(code, 0, data)
+        self.assertEqual(data["zh_scene_chars"]["range"], [25, 35])
+        notices = self.length_notices(data)
+        self.assertEqual(len(notices), 1, data["notices"])
+        self.assertIn("above", notices[0])
+        self.assertIn("short preset", notices[0])
+        code, data = self.plan(8, 30, mode="standard", preset="short")
+        self.assertEqual(self.length_notices(data), [], data["notices"])
+
+    def test_short_scenes_and_short_length_give_one_notice_without_add_scenes(self):
+        # 6 scenes of 31 characters: about 63 s, below the standard target of 120 s.
+        code, data = self.plan(6, 31)
+        self.assertEqual(code, 0, data)
+        short = [n for n in data["notices"] if "below" in n]
+        self.assertEqual(len(short), 1, data["notices"])
+        self.assertIn("fuller scenes, not more scenes", short[0])
+        self.assertIn("Estimated length", short[0])
+        self.assertFalse(any("add scenes" in n for n in data["notices"]), data["notices"])
+
+    def test_length_below_target_still_says_add_scenes_when_scenes_are_full(self):
+        # 6 scenes of 50 characters: about 100 s, below 120 s, average inside 45-60.
+        code, data = self.plan(6, 50)
+        self.assertEqual(code, 0, data)
+        self.assertEqual(self.length_notices(data), [], data["notices"])
+        self.assertTrue(any("below" in n and "add scenes" in n for n in data["notices"]),
+                        data["notices"])
+
+    def test_english_storyboard_has_no_chinese_field_or_notice(self):
+        code, data = self.plan(8, 31, lang="en")
+        self.assertEqual(code, 0, data)
+        self.assertNotIn("zh_scene_chars", data)
+        self.assertEqual(self.length_notices(data), [], data["notices"])
+
+
 class StopRuleTests(unittest.TestCase):
     """Fallback and flag fields in `plan`, and the missing-tool stop (no render)."""
 

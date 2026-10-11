@@ -67,6 +67,7 @@ On exit 1 or 2, `errors` is a list of messages.
 
 - `preset`: `name`, `width`, `height`, `fps`, `resolution`, `aspect`, `max_seconds` (the preset's length limit in every mode: `60` for `short`, otherwise `null`), `burn_captions`.
 - `mode`: `name`, `scenes` (`[min, max]` scene count), `target_seconds` (`[min, max]` length). Show the mode with the length and render-time estimates.
+- `zh_scene_chars` (Chinese storyboards only, `lang` starting with `zh`): `range` (`[min, max]` characters per scene in force: the mode's, or the quick range for the `short` preset), `average`, `per_scene` (hanzi plus Latin words of each scene). `plan` adds one notice when `average` is outside `range`. It never fails on it.
 - `engine`: `name`, `voice`, `reason`, `fallback` (the offline engine for zh-TW, or `null`).
 - `network`: `"offline"` or `"not checked"`. `plan` never connects. Use `--offline` (or `VIDEO_EXPLAINER_OFFLINE=1`) when the doctor reported no network.
 - `notices`: messages for the user. Show every one.
