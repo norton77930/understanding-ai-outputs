@@ -4,26 +4,37 @@
 #     "playwright==1.62.*",
 # ]
 # ///
-"""Render a Mermaid file to SVG and PNG in a headless browser.
+"""Render a Mermaid file to SVG and PNG, or an SVG file to PNG, in a headless browser.
 
 Usage:
     uv run render_diagram.py FILE.mmd [--out DIR]
+    uv run render_diagram.py FILE.svg [--out DIR]
 
-Writes DIR/<name>.svg and DIR/<name>.png (DIR defaults to the folder of
-FILE). The PNG is a screenshot of the rendered diagram at device scale 2,
-with a small white margin. Prints one JSON object on stdout (UTF-8):
+Mermaid (any file not ending in .svg): writes DIR/<name>.svg and
+DIR/<name>.png (DIR defaults to the folder of FILE). The PNG is a screenshot
+of the rendered diagram at device scale 2, with a small white margin.
+
+SVG (FILE ends in .svg): writes only DIR/<name>.png and never rewrites the
+SVG. The SVG is shown in an <img> element, as a host page shows it (no
+scripts, no outside resources), at its own size: width and height when they
+are plain numbers, otherwise the viewBox size (300 x 150 without either).
+The PNG is that image at device scale 2, with no margin. "svg" in the result
+is the input path; "mermaid_version" is null. Needs no network.
+
+Prints one JSON object on stdout (UTF-8):
 
     {"svg": path | null, "png": path | null,
      "width": int | null, "height": int | null,   PNG size in pixels
-     "mermaid_version": str, "browser": str | null,
+     "mermaid_version": str | null, "browser": str | null,
      "error": str | null,
      "hint": str}                                   only with exit 2
 
 Exit code:
     0  rendered
-    1  Mermaid reported a parse or render error ("error" has its message), or
-       the render did not finish within 30 seconds ("error" says "Render timed
-       out"); no files are written
+    1  Mermaid reported a parse or render error, or the browser could not
+       load the SVG ("error" has the message), or the render did not finish
+       within 30 seconds ("error" says "Render timed out"); no files are
+       written
     2  environment or input problem ("hint" says what to do): Playwright
        missing, no browser, Mermaid or one of its lazy-loaded diagram chunks
        not loadable (no network), unreadable input file, unexpected crash
@@ -43,7 +54,7 @@ Testing hooks (environment variables):
     DIAGRAM_RENDER_SIMULATE=no-playwright | no-browser   act as if that part of
         the environment is missing
     DIAGRAM_RENDER_SIMULATE=chunk-fetch-failure          act as if Mermaid
-        failed to fetch a lazy-loaded diagram chunk (exit 2)
+        failed to fetch a lazy-loaded diagram chunk (exit 2; Mermaid input)
     DIAGRAM_RENDER_SIMULATE=crash                        raise an unexpected
         exception (exit 2)
     DIAGRAM_RENDER_TIMEOUT_MS=N                          render time limit in
@@ -51,7 +62,9 @@ Testing hooks (environment variables):
 """
 
 import argparse
+import base64
 import json
+import math
 import os
 import re
 import struct
@@ -143,6 +156,48 @@ RENDER_JS = """(source) => {
     (e) => { window.__rendered = { error: message(e) }; });
 }"""
 
+
+SVG_PAGE_HTML = """<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html, body { margin: 0; background: #ffffff; } img { display: block; }</style>
+</head><body></body></html>
+"""
+
+# Parses the SVG for its size, then shows it in an <img> (how a host page shows
+# it). The outcome lands in window.__rendered, as in RENDER_JS.
+SVG_RENDER_JS = """([dataUrl, text]) => {
+  window.__rendered = undefined;
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const failure = doc.getElementsByTagName("parsererror")[0];
+  const root = doc.documentElement;
+  if (failure || root.localName !== "svg") {
+    const detail = failure ? failure.textContent.trim().split("\\n")[0] : "the root is not <svg>";
+    window.__rendered = { error: "The SVG did not parse: " + detail };
+    return;
+  }
+  const plain = (v) => {
+    const m = /^\\s*([0-9]*\\.?[0-9]+)\\s*(px)?\\s*$/.exec(v || "");
+    return m ? parseFloat(m[1]) : null;
+  };
+  const vb = (root.getAttribute("viewBox") || "").trim().split(/[\\s,]+/).map(Number);
+  let w = plain(root.getAttribute("width")), h = plain(root.getAttribute("height"));
+  if (vb.length === 4 && vb.every(Number.isFinite) && vb[2] > 0 && vb[3] > 0) {
+    if (w === null && h === null) { w = vb[2]; h = vb[3]; }
+    else if (w === null) { w = h * vb[2] / vb[3]; }
+    else if (h === null) { h = w * vb[3] / vb[2]; }
+  }
+  w = w || 300; h = h || 150;
+  const img = new Image();
+  img.id = "out";
+  img.style.width = w + "px";
+  img.style.height = h + "px";
+  document.body.appendChild(img);
+  img.src = dataUrl;
+  img.decode().then(
+    () => { window.__rendered = { width: w, height: h }; },
+    () => { img.remove();
+            window.__rendered = { error: "The browser could not load the SVG as an image." }; });
+}"""
 
 SIMULATED_WITHOUT_BROWSER = ("crash", "chunk-fetch-failure")
 
@@ -253,20 +308,69 @@ def render(source, svg_path, png_path):
             browser.close()
 
 
+def render_svg(raw, text, src_path, png_path):
+    """Show an SVG file in an <img> and save a PNG. Return (exit code, result)."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+    from playwright.sync_api import sync_playwright
+
+    data_url = "data:image/svg+xml;base64," + base64.b64encode(raw).decode("ascii")
+    with sync_playwright() as p:
+        browser, label, failures = launch_browser(p)
+        if browser is None:
+            return 2, result(error="No browser could start. " + "; ".join(failures),
+                             hint=HINT_NO_BROWSER, mermaid_version=None)
+        try:
+            context = browser.new_context(device_scale_factor=2,
+                                          viewport={"width": 1600, "height": 1200})
+            page = context.new_page()
+            page.route(PAGE_URL, lambda route: route.fulfill(
+                status=200, content_type="text/html; charset=utf-8", body=SVG_PAGE_HTML))
+            page.goto(PAGE_URL)
+            timeout_ms = render_timeout_ms()
+            page.evaluate(SVG_RENDER_JS, [data_url, text])
+            try:
+                page.wait_for_function("window.__rendered !== undefined",
+                                       timeout=timeout_ms)
+            except PlaywrightTimeout:
+                return 1, result(browser=label, mermaid_version=None,
+                                 error=f"Render timed out after {timeout_ms / 1000:g} "
+                                       "seconds; simplify the SVG or run again.")
+            rendered = page.evaluate("window.__rendered")
+            if "error" in rendered:
+                return 1, result(browser=label, mermaid_version=None,
+                                 error=rendered["error"])
+            # Make room for a large image so the screenshot is not cut.
+            page.set_viewport_size({
+                "width": max(1600, math.ceil(rendered["width"])),
+                "height": max(1200, math.ceil(rendered["height"]))})
+            png = page.locator("#out").screenshot(type="png")
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            png_path.write_bytes(png)
+            width, height = png_size(png)
+            return 0, result(svg=str(src_path), png=str(png_path), width=width,
+                             height=height, browser=label, mermaid_version=None)
+        finally:
+            browser.close()
+
+
 def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("file", help="Mermaid source file (.mmd)")
+    parser.add_argument("file", help="Mermaid source file (.mmd) or SVG file (.svg)")
     parser.add_argument("--out", help="output folder (default: folder of FILE)")
     args = parser.parse_args(argv)
 
     src = Path(args.file).resolve()
+    is_svg = src.suffix.lower() == ".svg"
+    extra = {"mermaid_version": None} if is_svg else {}
     try:
-        source = src.read_text(encoding="utf-8-sig")
+        raw = src.read_bytes()
+        source = raw.decode("utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
+        kind = "SVG" if is_svg else "Mermaid"
         return emit(result(error=f"Cannot read {args.file}: {exc}",
-                           hint="Pass the path of a UTF-8 Mermaid file."), 2)
+                           hint=f"Pass the path of a UTF-8 {kind} file.", **extra), 2)
     out_dir = Path(args.out).resolve() if args.out else src.parent
     svg_path = out_dir / f"{src.stem}.svg"
     png_path = out_dir / f"{src.stem}.png"
@@ -274,7 +378,7 @@ def main(argv=None):
     simulate = os.environ.get("DIAGRAM_RENDER_SIMULATE", "")
     if simulate == "no-browser":
         return emit(result(error="No browser could start (simulated).",
-                           hint=HINT_NO_BROWSER), 2)
+                           hint=HINT_NO_BROWSER, **extra), 2)
     try:
         if simulate == "no-playwright":
             raise ImportError("simulated")
@@ -282,19 +386,22 @@ def main(argv=None):
             import playwright.sync_api  # noqa: F401
     except ImportError:
         return emit(result(error="Python package playwright is not installed.",
-                           hint=HINT_NO_PLAYWRIGHT), 2)
+                           hint=HINT_NO_PLAYWRIGHT, **extra), 2)
 
     try:
         if simulate == "crash":
             raise RuntimeError("simulated crash")
         if simulate == "chunk-fetch-failure":
             code, data = render_failure(SIMULATED_CHUNK_ERROR, None)
+        elif is_svg:
+            code, data = render_svg(raw, source, src, png_path)
         else:
             code, data = render(source, svg_path, png_path)
     except Exception as exc:  # browser crash, driver error
         return emit(result(error=f"{type(exc).__name__}: {exc}",
                            hint="Run again. If it fails again, check the browser "
-                                "installation (see PLAYWRIGHT_BROWSERS_PATH)."), 2)
+                                "installation (see PLAYWRIGHT_BROWSERS_PATH).",
+                           **extra), 2)
     return emit(data, code)
 
 
