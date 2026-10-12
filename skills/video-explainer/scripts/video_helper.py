@@ -1,4 +1,4 @@
-"""Helper for video-explainer scenes modules (ManimCE 0.21, Text only, no LaTeX).
+"""Helper for video-explainer scenes modules (ManimCE 0.21, Text by default; LaTeX only when doctor reports it).
 
 A scenes module has one function per storyboard scene id. make_video.py calls
 each function with a SceneContext:
