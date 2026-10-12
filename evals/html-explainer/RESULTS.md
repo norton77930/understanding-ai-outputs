@@ -30,15 +30,29 @@ Newest run first. The earlier run is kept below as history; its single-axis rati
 - 01, 02: an Explore stage at the end, as expected (01: four sliders, presets, "播放 20 秒"; 02: first wait, cap, retry count, jitter, presets, "執行" with an animated chart).
 - 03: the page also ends with a 「動手試」 stage (change `sub` or re-sign, then send to the server), and the reply gives no skip reason. The control did not hold: changing the payload and watching the check fail is a process the reader can run, so the skill treated the topic as runnable. A purer structural control would be needed to test the skip rule.
 
+### Control re-run: 04-dns-record-types (run 20261013-052151)
+
+Added after this run because 03 did not hold as a control. Command: `python evals/html-explainer/run_eval.py --topics 04`. A/B seed 443708. Full report: `evals/html-explainer/runs/20261013-052151/report.md` (git-ignored, local only).
+
+| Topic | Request | Arm | page_check (issue rules) | render_check | No overflow at 390 | Size | Turns | Cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|
+| 04-dns-record-types | default | with-skill | PASS | PASS | PASS | 31.1 KB | 17 | $0.89 | 322 s |
+| 04-dns-record-types | default | baseline | PASS | PASS | PASS | 22.1 KB | 3 | $0.39 | 116 s |
+
+- Verdict (with-skill): PASS. Total $1.28, 438 s agent time.
+- The skip rule did not fire here either: the with-skill page ends with an Explore stage (add and delete records, run queries, a "CNAME 衝突" preset), and the reply gives no skip reason. The page also adds lookup steps the source does not describe (CNAME to an IP, an MX "播放", an NS query).
+- Reading: the rule "skip only for a purely definitional or structural topic" does not stop the agent, because almost any topic can be turned into something to run. Whether that hurts understanding is for the blind rating to show; if it does, the skip rule needs a sharper test (for example: skip when the source states no number and no process).
+
 ### Maintainer ratings (blind, two axes)
 
-Pending. Rate on `runs/20261013-041820/review.html`, same procedure and axes as round 4.
+Pending. Rate 01-03 on `runs/20261013-041820/review.html` and 04 on `runs/20261013-052151/review.html`, same procedure and axes as round 4.
 
 | Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
 |---|---|---|---|---|---|---|---|
 | 01-token-bucket | | | | | | | |
 | 02-retry-backoff | | | | | | | |
 | 03-jwt-structure | | | | | | | |
+| 04-dns-record-types | | | | | | | |
 
 ## Run 20261011-103229 (round 4: blueprint on request, visible assumptions, issue #55)
 
