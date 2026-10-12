@@ -1,6 +1,6 @@
 # Interaction patterns
 
-A page usually has one section per key point. For each section, pick the pattern that lets the reader do the thing the point is about. Several patterns on one page are normal. A section can have no control when a picture and text show its point clearly.
+A page usually has one section per key point, and one Explore stage near the end. Each section keeps one interaction that explains its point: pick the pattern that lets the reader do the thing the point is about. Several patterns on one page are normal. A section can have no control when a picture and text show its point clearly. The Explore stage then puts the inputs of the sections together, so the reader can try their own cases (see "Explore stage").
 
 | The point is ... | Pattern |
 | --- | --- |
@@ -10,6 +10,7 @@ A page usually has one section per key point. For each section, pick the pattern
 | a definition or extra detail | Reveal |
 | a result the reader can guess first | Predict-then-reveal |
 | a behavior that depends on the input (best case, worst case, edge case) | Preset scenarios |
+| the whole topic, for the reader to try after the sections (one per page) | Explore stage |
 
 One content pattern works with any of these and with any style: "Make the assumptions visible" (at the end of this file). It is optional. Use it only when the source contains assumptions or open decisions.
 
@@ -19,10 +20,10 @@ Rules for every pattern:
 - The first state on load must already be meaningful (step 1, a default slider value, all layers on).
 - Show the current state in words as well as in the picture (`Step 2 of 4`, the slider value).
 - Use native controls. Do not build buttons from `<div>` elements.
-- When the point is about change, animate the state change with a CSS transition. Turn the transition off in a `prefers-reduced-motion: reduce` override.
+- When the point is about change, animate the state change with a CSS transition (or `requestAnimationFrame` for a drawn chart). Turn the animation off in a `prefers-reduced-motion: reduce` override.
 - `render_check.py` clicks the first visible, enabled `<button>` on the page. Make sure that this button changes the page. For example, put "Next" before "Back".
 
-Each example below is a complete page that passes `page_check.py`. They show the mechanics with plain styles; do not copy their look (see "Design" in `design-baseline.md`). On a real page, each example is one section.
+Each example below is a complete page that passes `page_check.py`. They show the mechanics with plain styles; do not copy their look (see "Design" in `design-baseline.md`). On a real page, each example is one section. The Explore stage example is the last section of a page.
 
 ## Step-through
 
@@ -422,13 +423,207 @@ Buttons load a prepared input: the best case, the worst case and an edge case. T
 </html>
 ```
 
+## Explore stage
+
+One section near the end of the page puts the inputs of the earlier sections together: sliders, preset scenarios and a Run or Play button. It shows the result live, as an animated SVG chart, a simulation or a sensitivity view. The sections explain the topic; the Explore stage lets the reader try their own cases.
+
+Use it by default when the topic has a number that changes a result, or a process the reader can run. Skip it only when the topic is purely definitional or structural, for example a glossary or a layer diagram. Then say in the delivery line that the page has no Explore stage and why.
+
+- Start the `<h2>` with the point, as in every section, for example "Try it: the line grows near full load".
+- The first state on load is meaningful: a default case, already drawn.
+- Show the current state in words: every input value and the result.
+- Give a Reset button that loads the default case again.
+- Give preset scenarios as starting points. Mark the loaded preset with `aria-pressed`.
+- Animate every state change. A new input moves the chart to the new result (CSS transition or `requestAnimationFrame`); it never jumps. Run or Play draws the process step by step. In a `prefers-reduced-motion: reduce` override, or when `matchMedia` reports it, draw the end state at once.
+- Use native controls. Load no external resources.
+- Use the same terms and units as the sections. Do not add a new idea here; every input belongs to a point that a section explains.
+
+In the example below, "Run 60 minutes" is the first button, because the page has only this section. On a real page, the first button belongs to the first section.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout line: try it yourself</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #555b63; --accent: #0b62c4; --panel: #eef1f5; --border: #c4cad3; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --fg: #e8eaed; --muted: #a9b0ba; --accent: #6fb1ff; --panel: #1f242b; --border: #3b424c; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
+  button { font: inherit; padding: 0.4rem 0.9rem; background: var(--panel); color: var(--fg);
+           border: 2px solid var(--border); border-radius: 0.4rem; }
+  button[aria-pressed="true"] { border-color: var(--accent); font-weight: bold; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--muted); font-size: 12px; }
+  .axis { stroke: var(--border); }
+  #line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+  .track { background: var(--panel); border-radius: 0.3rem; margin-bottom: 0.8rem; }
+  #load { height: 1.2rem; border-radius: 0.3rem; background: var(--accent); transition: width 0.4s; }
+  @media (prefers-reduced-motion: reduce) {
+    #load { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Checkout line: try it yourself</h1>
+  <p>The line stays short only while the checkouts serve faster than customers arrive. Near full load, the line grows fast.</p>
+  <div class="row">
+    <button type="button" id="run">Run 60 minutes</button>
+    <button type="button" id="reset">Reset</button>
+  </div>
+  <div class="row" role="group" aria-label="Preset scenarios">
+    <button type="button" data-preset="quiet">Quiet morning</button>
+    <button type="button" data-preset="normal">Normal afternoon</button>
+    <button type="button" data-preset="rush">Lunch rush</button>
+    <button type="button" data-preset="extra">Lunch rush, one more checkout</button>
+  </div>
+  <label for="rate">Customers per minute: <output id="rate-out" for="rate"></output></label>
+  <input type="range" id="rate" min="1" max="10" value="5">
+  <label for="desks">Open checkouts (each serves 2 customers per minute): <output id="desks-out" for="desks"></output></label>
+  <input type="range" id="desks" min="1" max="5" value="3">
+  <p id="state" aria-live="polite"></p>
+  <div>Load: arrivals as a share of capacity</div>
+  <div class="track"><div id="load"></div></div>
+  <svg viewBox="0 0 360 170" role="img" aria-labelledby="chart-title">
+    <title id="chart-title">People in line at each minute of the hour</title>
+    <line class="axis" x1="30" y1="140" x2="350" y2="140"/>
+    <line class="axis" x1="30" y1="10" x2="30" y2="140"/>
+    <text x="26" y="144" text-anchor="end">0</text>
+    <text x="26" y="14" text-anchor="end">40</text>
+    <text x="36" y="14">people in line</text>
+    <text x="30" y="160">minute 0</text>
+    <text x="350" y="160" text-anchor="end">minute 60</text>
+    <polyline id="line" points=""/>
+  </svg>
+</main>
+<script>
+  const MINUTES = 60;
+  const TOP = 40;
+  const defaults = { rate: 5, desks: 3 };
+  const presets = {
+    quiet: { rate: 2, desks: 2 },
+    normal: { rate: 5, desks: 3 },
+    rush: { rate: 7, desks: 3 },
+    extra: { rate: 7, desks: 4 }
+  };
+  const rate = document.getElementById("rate");
+  const desks = document.getElementById("desks");
+  const line = document.getElementById("line");
+  const presetButtons = document.querySelectorAll("[data-preset]");
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let target = [];
+  let shown = [];
+  let frame = 0;
+
+  // A fixed seed gives the same arrivals every time, so only the inputs change the result.
+  function random(seed) {
+    return () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function arrivals(mean, next) {
+    let k = 0;
+    let p = next();
+    while (p > Math.exp(-mean)) { k += 1; p *= next(); }
+    return k;
+  }
+  function simulate(perMinute, open) {
+    const next = random(7);
+    const queue = [0];
+    for (let m = 1; m <= MINUTES; m += 1) {
+      queue.push(Math.max(0, queue[m - 1] + arrivals(perMinute, next) - open * 2));
+    }
+    return queue;
+  }
+  function draw(queue, upTo = MINUTES) {
+    line.setAttribute("points", queue.slice(0, upTo + 1).map((q, m) =>
+      `${30 + (m / MINUTES) * 320},${140 - (Math.min(q, TOP) / TOP) * 130}`).join(" "));
+  }
+  function describe(queue) {
+    const r = Number(rate.value);
+    const d = Number(desks.value);
+    const load = Math.round((r / (d * 2)) * 100);
+    document.getElementById("rate-out").textContent = r;
+    document.getElementById("desks-out").textContent = d;
+    document.getElementById("state").textContent =
+      `${r} customers per minute, capacity ${d * 2} per minute: load ${load}%. ` +
+      `After 60 minutes, ${queue[MINUTES]} people wait. The longest line is ${Math.max(...queue)}.`;
+    document.getElementById("load").style.width = `${Math.min(load, 100)}%`;
+    presetButtons.forEach((b) => {
+      const p = presets[b.dataset.preset];
+      b.setAttribute("aria-pressed", String(p.rate === r && p.desks === d));
+    });
+  }
+  // Move each point from the old line to the new line, so the reader sees the change.
+  function morph() {
+    cancelAnimationFrame(frame);
+    const from = shown;
+    if (still.matches) { shown = target; draw(shown); return; }
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min((now - start) / 400, 1);
+      shown = target.map((q, m) => from[m] + (q - from[m]) * t);
+      draw(shown);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  }
+  // Draw the hour minute by minute from the start.
+  function run() {
+    cancelAnimationFrame(frame);
+    shown = target;
+    if (still.matches) { draw(shown); return; }
+    const start = performance.now();
+    const tick = (now) => {
+      const m = Math.min(Math.floor((now - start) / 50), MINUTES);
+      draw(shown, m);
+      if (m < MINUTES) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  }
+  function update() {
+    target = simulate(Number(rate.value), Number(desks.value));
+    describe(target);
+    morph();
+  }
+  function load(values) {
+    rate.value = values.rate;
+    desks.value = values.desks;
+    update();
+  }
+  document.getElementById("run").addEventListener("click", run);
+  document.getElementById("reset").addEventListener("click", () => load(defaults));
+  presetButtons.forEach((b) => b.addEventListener("click", () => load(presets[b.dataset.preset])));
+  rate.addEventListener("input", update);
+  desks.addEventListener("input", update);
+  target = simulate(defaults.rate, defaults.desks);
+  shown = target;
+  draw(shown);
+  describe(target);
+</script>
+</body>
+</html>
+```
+
 ## Combine patterns on one page
 
 - The usual shape gives each key point its own `<section>` with an `<h2>` that states the point, and puts the main conclusion in the lead, above the first section. Use another shape if the topic calls for it.
-- Choose the pattern per section. One page can have a step-through, a slider and a predict-then-reveal.
-- Keep the state of each section in its own variables and its own `show()` function. Give each element a unique `id`, for example `bs-next` and `sort-next`.
+- Each section keeps one interaction that explains its point. Choose the pattern per section. One page can have a step-through, a slider and a predict-then-reveal.
+- The page adds one Explore stage near the end, after the sections and before the summary, when the topic has a number or a process to run (see "Explore stage").
+- Keep the state of each section in its own variables and its own `show()` function. Give each element a unique `id`, for example `bs-next` and `sort-next`. The Explore stage has its own state too; it does not change the sections above it.
 - Use the same term for one thing in every section.
-- The first button on the page belongs to the first interactive section. Make it change the page.
+- The first button on the page belongs to the first interactive section, not to the Explore stage. Make it change the page.
 
 ## Make the assumptions visible
 

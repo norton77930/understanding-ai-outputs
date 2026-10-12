@@ -11,7 +11,7 @@ Turn a topic, or an answer from this conversation, into one `index.html` file th
 
 - `scripts/page_check.py`: static check of the file rules. Standard library only.
 - `scripts/render_check.py`: loads the page in a headless browser and takes screenshots.
-- `references/interaction-patterns.md`: six patterns with complete examples, how to combine them, and the optional "Make the assumptions visible" content pattern. Read it before you write the page.
+- `references/interaction-patterns.md`: six section patterns and the Explore stage, with complete examples, how to combine them, and the optional "Make the assumptions visible" content pattern. Read it before you write the page.
 - `references/design-baseline.md`: the page rules, design guidance and a minimal skeleton.
 - `references/styles/blueprint.md`: the engineering-drawing look. Read it only when the user names that style (see "Named styles").
 - `references/checks.md`: both commands, their JSON, exit codes and environment variables.
@@ -29,6 +29,8 @@ Run every command from the user's project root. The default output folder is `ou
    - a behavior that depends on the input: preset scenarios
 
    Several patterns on one page are normal. Use motion where the point is about change. If the source is AI output that contains assumptions or open decisions (a plan, an architecture, a design), you can add "Make the assumptions visible" from the same file. Skip it when the source has none. Never invent an assumption.
+
+   Then decide on the Explore stage (same file): one section near the end that puts the inputs of the sections together (sliders, preset scenarios, Run or Play) and shows the result live, with animation. Add it by default when the topic has a number that changes a result or a process the reader can run. Skip it only for a purely definitional or structural topic, and say so in the delivery line.
 2. **Page.** Write ONE file, `out/html-explainer/<slug>/index.html`. The skeleton in `references/design-baseline.md` is only the required minimum. Design the page for this topic, as "Design" in that file describes. If the user names a style, apply "Named styles" below. The page must have:
    - `<html lang>` in the conversation's language, a `<title>` and a viewport meta.
    - Colors as CSS custom properties, with a `prefers-color-scheme: dark` override. Set the `body` background.
@@ -46,7 +48,7 @@ Run every command from the user's project root. The default output folder is `ou
 6. **Layout check.** Look at every PNG in `screenshots`. Look for overlapping elements, clipped text, text too small or too faint to read, a dark mode with light areas, an interaction screenshot with no change, and any drawn shape or number that does not match the math the page states (for example a stray curve). Then check the keyboard path in the page source: the controls are native elements in a logical order (no positive `tabindex`), so Tab reaches each one, and a `:focus-visible` rule gives them a visible outline (no `outline: none` without a replacement). Fix the page, then run steps 4 to 6 again. Do at most two fix rounds. Report any problem that is left.
 7. **Deliver.** Give the user:
    - the path of `index.html` (and the screenshot folder, if the render check ran)
-   - one line on how to use the page, for example "Press Next to step through each check."
+   - one line on how to use the page, including the Explore stage, for example "Press Next to step through each check, then try your own list in the Explore stage at the end." If the page has no Explore stage, say why, for example "No Explore stage: the topic has no number to change."
    - the render check status: passed, or skipped with the reason
    - any problem left after two fix rounds
 

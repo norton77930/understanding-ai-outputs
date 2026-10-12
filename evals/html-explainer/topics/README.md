@@ -1,17 +1,17 @@
 # Eval topics
 
-Status: APPROVED 2026-10-11 (round 4, issue #55). Earlier topics are kept in `round1/` (rounds 1-2) and `round3/`; the harness reads only `topics/0*.md`.
+Status: DRAFT 2026-10-13 (round 5, issue #63), pending maintainer approval. Earlier topics are kept in `round1/` (rounds 1-2), `round3/` and `round4/`; the harness reads only `topics/0*.md`.
 
-Four topics for the html-explainer eval (issue #32, spec #29; round 4 for issue #55), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with the topic's `- Request:` line when it has one, else "Make an interactive web page that explains the following.", and compares the with-skill and baseline pages. Both arms get the same request.
+Four topics for the html-explainer eval (issue #32, spec #29; round 5 for issue #63), all written for this repo (no copied text). Each file holds a short AI-style source explanation that the skill turns into an interactive page, the points a reader should understand afterwards, and hints for the intended interaction. The harness gives each one to an agent with the topic's `- Request:` line when it has one, else "Make an interactive web page that explains the following.", and compares the with-skill and baseline pages. Both arms get the same request.
 
 | File | Topic | Language | Request | Checks |
 |---|---|---|---|---|
-| `01-db-migration-plan.md` | An AI-written plan to move orders from MySQL to PostgreSQL | zh-TW | blueprint style | blueprint on request; visible assumptions (2) and an open decision |
-| `02-cache-proposal.md` | An AI proposal to put a Redis cache in front of a product API | zh-TW | blueprint style | blueprint on request; visible assumptions (2) and an open decision; hit-rate math |
-| `03-hash-table-resize.md` | How a hash table resizes when the load factor passes 0.75 | zh-TW | default | default pages do not regress |
-| `04-hosting-cost-estimate.md` | An AI estimate of a blog's monthly hosting cost | zh-TW | default | default pages do not regress; visible assumptions appear without a style |
+| `01-token-bucket.md` | How a token bucket limits API requests | zh-TW | default | numbers and a runnable process: Explore stage expected; burst and steady-rate math |
+| `02-retry-backoff.md` | An AI recommendation for exponential backoff with a cap and jitter | zh-TW | default | numbers and a runnable process: Explore stage expected; wait-time math |
+| `03-jwt-structure.md` | The three parts of a JWT and why a changed payload fails | zh-TW | default | meant as a structural control; the tamper check turned out to be a runnable process, so 04 was added |
+| `04-dns-record-types.md` | What each DNS record type answers, and the CNAME rule | zh-TW | default | control: purely definitional, no number and no process; Explore stage expected to be skipped with the reason stated |
 
-Round 4 answers the two #55 acceptance questions: (a) a blueprint page on request against Claude without the skill given the same request (01, 02), and (b) default pages do not regress (03, 04). 01, 02 and 04 are AI output with stated assumptions, so the optional "make the assumptions visible" pattern fits them; 03 has none, so the pattern must not appear. All are zh-TW, so the maintainer can rate every page, and new, so the maintainer has not seen pages of them before. The sources are sized in characters (about 300–350). The "Reader should understand" bullets are the checklist for the blind rating; the interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The check values were calculated by hand.
+Round 5 answers the #63 acceptance question: with the Explore stage, is the with-skill page at least as easy to understand as the baseline, and not less interactive? 01 and 02 have numbers and a process the reader can run, so the skill should add an Explore stage. 03 is the control: no number changes a result, so the skill should skip the Explore stage and say why, and understanding must not drop. All are zh-TW, so the maintainer can rate every page, and new, so the maintainer has not seen pages of them before. The sources are sized in characters (about 300–350). The "Reader should understand" bullets are the checklist for the blind rating; the interaction hints are optional guidance for the reviewer, not a script for the agent, and are in English. The check values were calculated by hand.
 
 ## Review checklist
 
@@ -26,7 +26,9 @@ When you review or change a topic, check it for:
 
 ## Approval
 
-Round 4: approved by the maintainer on 2026-10-11, no changes.
+Round 5: pending.
+
+Round 4 (`round4/`): approved by the maintainer on 2026-10-11, no changes; used in run `20261011-103229`.
 
 Round 3 (`round3/`): approved by the maintainer on 2026-10-09, no changes; used in run `20261009-021002`.
 

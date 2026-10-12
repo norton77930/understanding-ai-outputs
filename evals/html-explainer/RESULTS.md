@@ -2,6 +2,58 @@
 
 Newest run first. The earlier run is kept below as history; its single-axis ratings are not comparable with the two-axis ratings of the next run.
 
+## Run 20261013-041820 (round 5: Explore stage, issue #63)
+
+2026-10-13. Model: claude CLI default (`claude` 2.1.296). One run per topic and arm, workers 2, timeout 1200 s per agent run. Command: `python evals/html-explainer/run_eval.py` (plugin dir: branch `feat/63-explore-stage`, PR #66). A/B seed 41915. Full report: `evals/html-explainer/runs/20261013-041820/report.md` (git-ignored, local only).
+
+**Topics:** round 5 (draft 2026-10-13, run before maintainer approval). All three send the default request. 01 and 02 have numbers and a process the reader can run; 03 is meant as the structural control.
+
+### Automated metrics
+
+**Verdict (with-skill arm): PASS.**
+
+- with-skill: page_check 3/3, render_check 3/3, cost $3.16, 1092 s agent time.
+- baseline: page_check 2/3 (missing-dark-mode on 03), render_check 3/3, cost $2.64, 984 s agent time.
+- Total: $5.79, 2075 s agent time.
+
+| Topic | Request | Arm | page_check (issue rules) | render_check | No overflow at 390 | Size | Turns | Cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|
+| 01-token-bucket | default | with-skill | PASS | PASS | PASS | 32.6 KB | 18 | $1.07 | 345 s |
+| 01-token-bucket | default | baseline | PASS | PASS | PASS | 40.7 KB | 17 | $1.18 | 419 s |
+| 02-retry-backoff | default | with-skill | PASS | PASS | PASS | 28.9 KB | 23 | $1.04 | 406 s |
+| 02-retry-backoff | default | baseline | PASS | PASS | PASS | 28.0 KB | 22 | $0.92 | 352 s |
+| 03-jwt-structure | default | with-skill | PASS | PASS | PASS | 31.4 KB | 22 | $1.04 | 341 s |
+| 03-jwt-structure | default | baseline | FAIL (missing-dark-mode) | PASS | PASS | 25.1 KB | 6 | $0.54 | 213 s |
+
+### Explore stage (from the with-skill replies)
+
+- 01, 02: an Explore stage at the end, as expected (01: four sliders, presets, "播放 20 秒"; 02: first wait, cap, retry count, jitter, presets, "執行" with an animated chart).
+- 03: the page also ends with a 「動手試」 stage (change `sub` or re-sign, then send to the server), and the reply gives no skip reason. The control did not hold: changing the payload and watching the check fail is a process the reader can run, so the skill treated the topic as runnable. A purer structural control would be needed to test the skip rule.
+
+### Control re-run: 04-dns-record-types (run 20261013-052151)
+
+Added after this run because 03 did not hold as a control. Command: `python evals/html-explainer/run_eval.py --topics 04`. A/B seed 443708. Full report: `evals/html-explainer/runs/20261013-052151/report.md` (git-ignored, local only).
+
+| Topic | Request | Arm | page_check (issue rules) | render_check | No overflow at 390 | Size | Turns | Cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|
+| 04-dns-record-types | default | with-skill | PASS | PASS | PASS | 31.1 KB | 17 | $0.89 | 322 s |
+| 04-dns-record-types | default | baseline | PASS | PASS | PASS | 22.1 KB | 3 | $0.39 | 116 s |
+
+- Verdict (with-skill): PASS. Total $1.28, 438 s agent time.
+- The skip rule did not fire here either: the with-skill page ends with an Explore stage (add and delete records, run queries, a "CNAME 衝突" preset), and the reply gives no skip reason. The page also adds lookup steps the source does not describe (CNAME to an IP, an MX "播放", an NS query).
+- Reading: the rule "skip only for a purely definitional or structural topic" does not stop the agent, because almost any topic can be turned into something to run. Whether that hurts understanding is for the blind rating to show; if it does, the skip rule needs a sharper test (for example: skip when the source states no number and no process).
+
+### Maintainer ratings (blind, two axes)
+
+Pending. Rate 01-03 on `runs/20261013-041820/review.html` and 04 on `runs/20261013-052151/review.html`, same procedure and axes as round 4.
+
+| Topic | A understanding | A presentation | B understanding | B presentation | Better (A/B/tie) | Notes | With-skill was (from key) |
+|---|---|---|---|---|---|---|---|
+| 01-token-bucket | | | | | | | |
+| 02-retry-backoff | | | | | | | |
+| 03-jwt-structure | | | | | | | |
+| 04-dns-record-types | | | | | | | |
+
 ## Run 20261011-103229 (round 4: blueprint on request, visible assumptions, issue #55)
 
 2026-10-11. Model: claude CLI default (`claude` 2.1.296). One run per topic and arm, workers 4, timeout 1200 s per agent run. Command: `python evals/html-explainer/run_eval.py --workers 4` (plugin dir: branch `feat/55-html-styles`, PR #60). A/B seed 331874. Full report: `evals/html-explainer/runs/20261011-103229/report.md` (git-ignored, local only).
