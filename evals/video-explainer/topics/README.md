@@ -20,7 +20,7 @@ The English sources are about 120–150 words. The Chinese sources are sized in 
 When you review or change a topic, check it for:
 
 - Realistic content: something a user would plausibly ask an agent to explain, at the right level for the target length.
-- Suited to animation: the idea has something that moves, changes or travels, and does not rely on formulas (v1 has no LaTeX).
+- Suited to animation: the idea has something that moves, changes or travels, and does not rely on formulas (LaTeX is optional and may be missing).
 - No copied third-party text (ADR 0001): written originally, not taken from docs, Wikipedia or tutorials.
 - zh-TW topics use Taiwan wording (程式, 資料, 伺服器, 預設).
 - The understanding points match what the source actually says.
