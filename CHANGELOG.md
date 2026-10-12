@@ -40,6 +40,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `video-explainer` skill: camera moves (#44). `ctx.camera.zoom`, `pan` and `restore` zoom in on a detail or pan along
   a long object as timed beats; titles, captions and the burned narration stay fixed in every preset, and each scene
   ends with the camera at home. The helper moves the content, not the scene camera. New Example 7.
+- `html-explainer` skill: Explore stage (#63). Each section keeps one interaction that explains its point; the page
+  adds one Explore stage near the end that puts the inputs of the sections together (sliders, preset scenarios, a Run
+  or Play button) and shows the result live. It is the default when the topic has a number that changes a result or a
+  process the reader can run; the skill skips it only for a purely definitional or structural topic and says so in the
+  delivery line. Rules: a meaningful state on load, the current state in words, a Reset, preset scenarios, animated
+  changes (CSS transition or `requestAnimationFrame`) with a `prefers-reduced-motion` override, native controls. New
+  complete example (a checkout line simulation). The checks are unchanged.
 
 ### Changed
 
